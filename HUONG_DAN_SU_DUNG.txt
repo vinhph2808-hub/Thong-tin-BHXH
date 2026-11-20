@@ -1,0 +1,61 @@
+CÔNG CỤ XUẤT THÔNG BÁO BHXH C12 (PHIÊN BẢN 2.0 PRO)
+===================================================
+
+1. ĐẶC ĐIỂM NỔI BẬT:
+- Giao diện trực quan hiện đại, tối ưu độ phân giải cao (High DPI).
+- Tích hợp sẵn mẫu bảng tính chuẩn, xuất file Excel đẹp mắt, chuyên nghiệp.
+- Hỗ trợ chọn từng file hoặc thêm cả thư mục chỉ với 1 cú click.
+- Hỗ trợ toàn diện: PDF điện tử, PDF scan dạng hình ảnh, và các file ảnh trực tiếp (.png, .jpg, .jpeg, .bmp, .tiff).
+- Tích hợp công nghệ nhận diện quang học OCR tự động của Windows: tốc độ dưới 1 giây, độ chính xác tuyệt đối.
+- Tự động nhận diện mã đơn vị (YN, IC, BW), tự động tách nhiều tháng/đơn vị trong 1 file.
+- Tự động đối soát quỹ lương theo quy chuẩn luật BHXH và kiểm tra nộp tiền.
+- Tự động mở file Excel ngay khi xuất xong và cung cấp các nút thao tác nhanh.
+
+2. CÁCH SỬ DỤNG:
+- Chạy trực tiếp file "Xuat_Thong_Bao_BHXH_C12.exe" (không cần cài đặt Python hay thư viện ngoài).
+- Thêm file tài liệu bằng một trong các cách:
+  + Kéo thả trực tiếp file PDF / hình ảnh vào bảng danh sách.
+  + Bấm nút "Thêm file..." để chọn nhiều file.
+  + Bấm nút "Thêm cả thư mục..." để tự động nạp tất cả tài liệu trong một thư mục.
+- Bấm "ĐỌC TÀI LIỆU VÀ XUẤT EXCEL" để hệ thống tự động trích xuất và tổng hợp.
+- Kết quả được tạo mới trong thư mục "Ket_qua" cạnh file EXE.
+
+3. QUY TẮC ĐỐI CHIẾU & GHI DỮ LIỆU:
+- Mã đơn vị YN... -> sheet "YN"; IC... hoặc BW... -> sheet "IC".
+- STT B / cột CỘNG -> Cột B (Tổng phát sinh trong kỳ theo tháng).
+- Quỹ lương / cột BHTNLĐ -> Cột C (Quỹ lương theo tháng).
+- Dòng C - Số tiền đã nộp trong kỳ / cột CỘNG -> Cột D (Nộp tiền BH theo tháng). Nếu kỳ không nộp tiền, tự động ghi nhận 0 VNĐ.
+- STT A - Kỳ trước mang sang / cột CỘNG của tháng 1 -> Ô E4 (Số dư đầu kỳ).
+- Cột E (Còn phải trả) tự động tính toán theo công thức lũy kế từng tháng.
+- Sheet "KIỂM TRA PDF" tự động kiểm tra đủ 12 tháng, đánh dấu trạng thái trực quan:
+  + Màu xanh lá: Đã nhập đủ dữ liệu.
+  + Màu cam: Thiếu PDF cho tháng tương ứng.
+  + Màu vàng: Có PDF nhưng thiếu một số chỉ tiêu cần bổ sung.
+
+4. LƯU Ý KHI SỬ DỤNG:
+- Tool luôn tạo file kết quả mới dạng "THONG_BAO_BHXH_KET_QUA_YYYYMMDD_HHMMSS.xlsx", không ghi đè file cũ.
+- Tự động xử lý cả PDF số hóa và PDF chụp ảnh/scan mà không yêu cầu người dùng phải chuyển đổi trước.
+- Nếu có nhiều file cho cùng một đơn vị và tháng, tool sẽ dùng dữ liệu của file nằm sau cùng trong danh sách.
+
+5. HỆ THỐNG KIỂM SOÁT BẢN QUYỀN ONLINE (GOOGLE SHEETS) & GỘP CHUNG VỚI TOOL THUẾ:
+Phần mềm sử dụng chung 1 hệ sinh thái quản lý bản quyền từ xa với Tool Thuế thông qua Google Sheets:
+
+A. Khi gửi phần mềm sang laptop khác:
+- Người dùng mở file EXE lần đầu, màn hình "HỆ THỐNG KIỂM SOÁT BẢN QUYỀN ONLINE" sẽ xuất hiện.
+- Phần mềm tự động tạo Mã thiết bị phần cứng (Hardware ID: TK-XXXX-XXXX-XXXX) và tự động gửi yêu cầu lên Google Sheets của bạn ở trạng thái [CHỜ DUYỆT].
+- Người dùng có thể bấm nút "💬 Sao chép mẫu tin nhắn gửi Quản trị viên qua Zalo" để thông báo cho bạn.
+
+B. Phê duyệt hoặc Chủ động Ngắt kết nối từ xa (Thực hiện trên điện thoại hoặc máy tính của bạn):
+- Mở bảng tính Google Sheets quản lý của bạn (có thể bấm nút "🌐 Quản lý Online (Google Sheets)" trên tool hoặc mở link Google Sheets).
+- Tìm dòng có Mã thiết bị (Hardware ID) hoặc tên máy của khách (cột Tên máy sẽ có tiền tố [BHXH] hoặc [THUẾ] để bạn dễ phân biệt):
+  + Để DUYỆT cho máy đó hoạt động: Tại cột "Trạng thái", bạn chỉ cần gõ "HOẠT ĐỘNG" (hoặc "DUYỆT", "ACTIVE", "CHO PHÉP", "OK"). Ô sẽ tự đổi sang màu xanh lá.
+  + Để NGẮT KẾT NỐI (KHÓA TỪ XA): Tại cột "Trạng thái", bạn gõ "KHÓA" (hoặc "BLOCKED", "NGẮT", "CHẶN"). Ô đổi sang màu đỏ. Ngay lập tức máy đó bị ngắt kết nối và khóa quyền sử dụng!
+  + Đặt hạn sử dụng: Tại cột "Hạn sử dụng", bạn có thể nhập ngày hết hạn (ví dụ: 31/12/2026) hoặc để "VĨNH VIỄN".
+- Khách trên máy của họ chỉ cần bấm nút "🔄 KIỂM TRA LẠI TRẠNG THÁI DUYỆT ONLINE" là phần mềm tự động mở khóa sử dụng ngay lập tức mà không cần gõ mã phức tạp.
+
+C. Kích hoạt Offline khẩn cấp (Khi máy khách mất mạng):
+- Máy tính của bạn được nhận diện là [👑 Máy Quản Trị] toàn quyền.
+- Bấm nút "🌐 Quản lý Online (Google Sheets)" trên tool của bạn (hoặc chạy "CẤP_MÃ_BẢN_QUYỀN.bat"):
+  1. Dán Mã thiết bị (TK-XXXX-XXXX-XXXX) của khách vào ô.
+  2. Chọn thời hạn: Vĩnh viễn, 1 Năm, 6 Tháng, 1 Tháng.
+  3. Bấm "⚡ TẠO & SAO CHÉP MÃ KÍCH HOẠT OFFLINE" và gửi mã dạng ACT-... cho khách nhập vào ô kích hoạt offline.
