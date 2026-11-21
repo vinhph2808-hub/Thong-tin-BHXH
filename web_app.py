@@ -10,7 +10,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 from c12_tool.parser import parse_c12_records, C12ParseError
-from c12_tool.excel_writer import export_records
+from c12_tool.excel_writer import export_records, ExcelWriteError
 
 # Cấu hình trang
 st.set_page_config(
@@ -40,7 +40,7 @@ st.markdown(
         color: white !important;
         font-weight: bold !important;
         border-radius: 8px !important;
-        padding: 10px 24px !important;
+        padding: 12px 24px !important;
         font-size: 16px !important;
         width: 100%;
         border: none !important;
@@ -60,6 +60,24 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+def get_template_path() -> Path:
+    base_dir = Path(__file__).resolve().parent
+    # 1. Tìm template.xlsx (ASCII an toàn tuyệt đối trên mọi OS)
+    if (base_dir / "template.xlsx").is_file():
+        return base_dir / "template.xlsx"
+    # 2. Tìm THÔNG BÁO BXH.xlsx
+    if (base_dir / "THÔNG BÁO BXH.xlsx").is_file():
+        return base_dir / "THÔNG BÁO BXH.xlsx"
+    # 3. Tìm trong thư mục assets
+    assets_tpl = base_dir / "assets" / "THÔNG BÁO BXH.xlsx"
+    if assets_tpl.is_file():
+        return assets_tpl
+    # 4. Tìm bất kỳ file .xlsx nào trong thư mục gốc
+    for p in base_dir.glob("*.xlsx"):
+        if "KET_QUA" not in p.name.upper() and not p.name.startswith("~$"):
+            return p
+    raise FileNotFoundError("Không tìm thấy file Excel mẫu (THÔNG BÁO BXH.xlsx hoặc template.xlsx) trên máy chủ!")
+
 with st.sidebar:
     st.header("⚙️ Hướng dẫn & Tùy chọn")
     st.info(
@@ -73,6 +91,12 @@ with st.sidebar:
     st.markdown("- ✅ Tự động khớp tháng 1 - 12")
     st.markdown("- ✅ Điền đúng số tiền mang sang và số tiền đã nộp")
     st.markdown("- ✅ Chạy mượt mà trực tiếp trên nền web")
+
+# Khởi tạo session state lưu trữ kết quả
+if "processed_records" not in st.session_state:
+    st.session_state["processed_records"] = None
+if "excel_bytes" not in st.session_state:
+    st.session_state["excel_bytes"] = None
 
 # Khu vực Upload tập tin
 uploaded_files = st.file_uploader(
@@ -125,73 +149,76 @@ if uploaded_files:
         
         if not all_records:
             st.error("Không trích xuất được bản ghi C12 nào từ các tập tin đã tải lên.")
+            st.session_state["processed_records"] = None
+            st.session_state["excel_bytes"] = None
         else:
-            st.success(f"🎉 Xử lý thành công **{len(all_records)}** thông báo C12!")
-            
-            # Xuất ra file Excel trong bộ nhớ
-            template_path = Path(__file__).resolve().parent / "THÔNG BÁO BXH.xlsx"
-            
-            with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_out:
-                out_path = Path(tmp_out.name)
-            
             try:
-                export_records(all_records, out_path, template_path=template_path if template_path.is_file() else None)
-                with open(out_path, "rb") as f:
-                    excel_bytes = f.read()
-            finally:
-                if out_path.exists():
-                    try:
-                        os.unlink(out_path)
-                    except Exception:
-                        pass
-            
-            # Hiển thị bảng tổng hợp kết quả xem trước
-            st.markdown("### 📊 Xem trước số liệu đã trích xuất")
-            
-            yn_data = [
-                {
-                    "Tháng": r.month,
-                    "Phát sinh trong kỳ (B)": f"{r.b_total:,.0f}" if r.b_total is not None else "-",
-                    "Quỹ lương (2)": f"{r.row2_bhtnld:,.0f}" if r.row2_bhtnld is not None else "-",
-                    "Số đã nộp trong kỳ (C)": f"{r.c_total:,.0f}" if r.c_total is not None else "-",
-                    "File nguồn": r.pdf_path.name,
-                }
-                for r in all_records if r.unit == "YN"
-            ]
-            
-            ic_data = [
-                {
-                    "Tháng": r.month,
-                    "Phát sinh trong kỳ (B)": f"{r.b_total:,.0f}" if r.b_total is not None else "-",
-                    "Quỹ lương (2)": f"{r.row2_bhtnld:,.0f}" if r.row2_bhtnld is not None else "-",
-                    "Số đã nộp trong kỳ (C)": f"{r.c_total:,.0f}" if r.c_total is not None else "-",
-                    "File nguồn": r.pdf_path.name,
-                }
-                for r in all_records if r.unit == "IC"
-            ]
-            
-            tab_yn, tab_ic = st.tabs(["🇻🇳 Đơn vị YN (Việt Nam)", "🌍 Đơn vị IC (Nước Ngoài)"])
-            with tab_yn:
-                if yn_data:
-                    df_yn = pd.DataFrame(yn_data).sort_values("Tháng")
-                    st.dataframe(df_yn, use_container_width=True, hide_index=True)
-                else:
-                    st.info("Chưa có dữ liệu đơn vị YN.")
-            
-            with tab_ic:
-                if ic_data:
-                    df_ic = pd.DataFrame(ic_data).sort_values("Tháng")
-                    st.dataframe(df_ic, use_container_width=True, hide_index=True)
-                else:
-                    st.info("Chưa có dữ liệu đơn vị IC.")
-            
-            st.markdown("---")
-            st.download_button(
-                label="📥 TẢI FILE EXCEL KẾT QUẢ (.XLSX)",
-                data=excel_bytes,
-                file_name="THONG_BAO_BHXH_TONG_HOP.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-            )
+                template_file = get_template_path()
+                with tempfile.TemporaryDirectory() as out_dir:
+                    result_excel = export_records(template_file, all_records, out_dir)
+                    with open(result_excel, "rb") as f:
+                        excel_data = f.read()
+                
+                st.session_state["processed_records"] = all_records
+                st.session_state["excel_bytes"] = excel_data
+                st.toast("🎉 Xử lý và tạo file Excel thành công!", icon="✅")
+            except Exception as exc:
+                st.error(f"Lỗi khi ghi dữ liệu ra file Excel: {exc}")
+                st.session_state["processed_records"] = None
+                st.session_state["excel_bytes"] = None
+
+    # Hiển thị kết quả đã lưu trong session_state
+    if st.session_state.get("processed_records") and st.session_state.get("excel_bytes"):
+        recs = st.session_state["processed_records"]
+        st.success(f"🎉 Đã trích xuất thành công **{len(recs)}** thông báo C12!")
+        
+        # Hiển thị bảng tổng hợp kết quả xem trước
+        st.markdown("### 📊 Xem trước số liệu đã trích xuất")
+        
+        yn_data = [
+            {
+                "Tháng": r.month,
+                "Phát sinh trong kỳ (B)": f"{r.b_total:,.0f}" if r.b_total is not None else "-",
+                "Quỹ lương (2)": f"{r.row2_bhtnld:,.0f}" if r.row2_bhtnld is not None else "-",
+                "Số đã nộp trong kỳ (C)": f"{r.c_total:,.0f}" if r.c_total is not None else "-",
+                "File nguồn": r.pdf_path.name,
+            }
+            for r in recs if r.unit == "YN"
+        ]
+        
+        ic_data = [
+            {
+                "Tháng": r.month,
+                "Phát sinh trong kỳ (B)": f"{r.b_total:,.0f}" if r.b_total is not None else "-",
+                "Quỹ lương (2)": f"{r.row2_bhtnld:,.0f}" if r.row2_bhtnld is not None else "-",
+                "Số đã nộp trong kỳ (C)": f"{r.c_total:,.0f}" if r.c_total is not None else "-",
+                "File nguồn": r.pdf_path.name,
+            }
+            for r in recs if r.unit in ("IC", "IN")
+        ]
+        
+        tab_yn, tab_ic = st.tabs(["🇻🇳 Đơn vị YN (Việt Nam)", "🌍 Đơn vị IC (Nước Ngoài)"])
+        with tab_yn:
+            if yn_data:
+                df_yn = pd.DataFrame(yn_data).sort_values("Tháng")
+                st.dataframe(df_yn, use_container_width=True, hide_index=True)
+            else:
+                st.info("Chưa có dữ liệu đơn vị YN.")
+        
+        with tab_ic:
+            if ic_data:
+                df_ic = pd.DataFrame(ic_data).sort_values("Tháng")
+                st.dataframe(df_ic, use_container_width=True, hide_index=True)
+            else:
+                st.info("Chưa có dữ liệu đơn vị IC.")
+        
+        st.markdown("---")
+        st.download_button(
+            label="📥 TẢI FILE EXCEL KẾT QUẢ (.XLSX)",
+            data=st.session_state["excel_bytes"],
+            file_name="THONG_BAO_BHXH_TONG_HOP.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
 else:
     st.info("👆 Vui lòng tải các file C12 lên để bắt đầu.")
