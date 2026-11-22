@@ -427,10 +427,21 @@ def _run_ocr(image_paths: list[Path]) -> list[dict]:
         import pytesseract
         from PIL import Image
 
+        try:
+            avail_langs = pytesseract.get_languages()
+        except Exception:
+            avail_langs = []
+        tess_lang = "vie+eng" if "vie" in avail_langs else "eng"
+
         results = []
         for p in image_paths:
             img = Image.open(p)
-            data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
+            data = pytesseract.image_to_data(
+                img,
+                lang=tess_lang,
+                config="--psm 11",
+                output_type=pytesseract.Output.DICT,
+            )
             words = []
             for i in range(len(data["text"])):
                 w_text = data["text"][i].strip()
@@ -456,7 +467,7 @@ def _clean_and_merge_line_words(words: list[dict]) -> list[dict]:
     for w in sorted_words:
         placed = False
         for line in lines:
-            if abs(line["y"] - w["y"]) <= 8:
+            if abs(line["y"] - w["y"]) <= 14:
                 line["words"].append(w)
                 placed = True
                 break
@@ -497,8 +508,9 @@ def _parse_ocr_chunks(chunks: list[list[dict]], source_path: Path) -> list[C12Re
         full_p2_text = " ".join(w["t"] for w in p2_words)
 
         # Unit code & prefix
+        clean_fn = _key(source_path.name)
         fn_code = None
-        m_fn_c = re.search(r"(?:^|[^A-Za-z0-9])((?:YN|IC|BW)[0-9A-Z]{4,})", source_path.name, re.I)
+        m_fn_c = re.search(r"(?:^|[^A-Z0-9])((?:YN|IC|BW)[0-9A-Z]{4,})", clean_fn)
         if m_fn_c:
             raw_c = m_fn_c.group(1).upper()
             fn_code = raw_c[:2] + raw_c[2:].replace("O", "0").replace("I", "1").replace("L", "1")
@@ -519,34 +531,34 @@ def _parse_ocr_chunks(chunks: list[list[dict]], source_path: Path) -> list[C12Re
 
         unit_code = token_code or fn_code or text_code
         if not unit_code:
-            parent_name = source_path.parent.name.lower()
-            fn_lower = source_path.name.lower()
+            parent_name = _key(source_path.parent.name)
+            fn_lower = clean_fn.lower()
             if (
-                any(kw in parent_name for kw in ["nn", "nuoc ngoai", "nuoc_ngoai", "ic"])
-                or any(kw in fn_lower for kw in ["_ic", "ic0", "nuoc ngoai", "nuoc_ngoai"])
-                or any(kw in full_p1_text.lower() for kw in ["nuoc ngoai", "nguoi nuoc", "ico"])
+                any(kw in parent_name for kw in ["NN", "NUOC NGOAI", "IC"])
+                or any(kw in fn_lower for kw in ["_IC", "IC0", "NUOC NGOAI"])
+                or any(kw in _key(full_p1_text) for kw in ["NUOC NGOAI", "NGUOI NUOC", "ICO"])
             ):
                 unit_code = "IC0117Q" if "0117" in full_p1_text or "0117" in fn_lower else "IC0001B"
             else:
                 unit_code = "YN0161Q" if "0161" in full_p1_text or "0161" in fn_lower else "YN0005B"
 
-        parent_upper = source_path.parent.name.upper()
-        if unit_code[:2] in ("IC", "BW") or parent_upper in ("NN", "NUOC NGOAI", "IC") or "_IC" in source_path.name.upper():
+        parent_upper = _key(source_path.parent.name)
+        if unit_code[:2] in ("IC", "BW") or parent_upper in ("NN", "NUOC NGOAI", "IC") or "_IC" in clean_fn:
             unit = "IC"
         else:
             unit = "YN"
 
         # Month
         month = None
-        m_m = re.search(r"Th[aåiîu]ng\s*(0?[1-9]|1[0-2])\b", full_p1_text, re.I)
+        m_m = re.search(r"THANG\s*(0?[1-9]|1[0-2])\b", _key(full_p1_text))
         if m_m:
             month = int(m_m.group(1))
         else:
-            m_m2 = re.search(r"h[eéê]t\s*th[aåiîu]ng\s*(0?[1-9]|1[0-2])\b", full_p2_text, re.I)
+            m_m2 = re.search(r"HET\s*THANG\s*(0?[1-9]|1[0-2])\b", _key(full_p2_text))
             if m_m2:
                 month = int(m_m2.group(1))
             else:
-                m_fn = re.search(r"(?:th[aáàảãạ]ng|t)[\s._-]*(0?[1-9]|1[0-2])\b", source_path.name, re.I)
+                m_fn = re.search(r"(?:THANG|T)[\s._-]*(0?[1-9]|1[0-2])\b", clean_fn)
                 if m_fn:
                     month = int(m_fn.group(1))
 
@@ -554,11 +566,11 @@ def _parse_ocr_chunks(chunks: list[list[dict]], source_path: Path) -> list[C12Re
             continue
 
         year = None
-        m_y = re.search(r"n[aäiăâ]*m\s*(20\d{2})\b", full_p1_text, re.I)
+        m_y = re.search(r"NAM\s*(20\d{2})\b", _key(full_p1_text))
         if m_y:
             year = int(m_y.group(1))
         else:
-            m_y_fn = re.search(r"(20\d{2})", source_path.name)
+            m_y_fn = re.search(r"(20\d{2})", clean_fn)
             if m_y_fn:
                 year = int(m_y_fn.group(1))
             else:
