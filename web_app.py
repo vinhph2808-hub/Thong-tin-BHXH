@@ -56,7 +56,11 @@ st.markdown(
 # Tiêu đề ứng dụng
 st.markdown('<div class="main-header">📑 HỆ THỐNG XỬ LÝ & XUẤT THÔNG BÁO BHXH C12</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="sub-header">Tự động đọc dữ liệu C12 (Việt Nam & Nước Ngoài), trích xuất chỉ tiêu B, Quỹ lương, C (Đã nộp) và điền chuẩn vào mẫu Excel.</div>',
+    '<div style="background-color: #10B981; color: white; padding: 4px 12px; border-radius: 6px; font-weight: bold; font-size: 13px; display: inline-block; margin-bottom: 8px;">✅ Phiên bản v2.3 (22/11/2026) - Chuẩn hóa quét STT B, 2, C & Cột CỘNG</div>',
+    unsafe_allow_html=True,
+)
+st.markdown(
+    '<div class="sub-header">Tự động đọc dữ liệu C12 (Việt Nam & Nước Ngoài), trích xuất chỉ tiêu B, Quỹ lương (STT 2), C (Đã nộp) theo cột CỘNG và điền chuẩn vào mẫu Excel.</div>',
     unsafe_allow_html=True,
 )
 
@@ -86,6 +90,10 @@ with st.sidebar:
         "3. Xem trước bảng kết quả và bấm **Tải file Excel**."
     )
     st.markdown("---")
+    if st.button("🔄 Làm mới / Xóa dữ liệu cũ", use_container_width=True):
+        st.session_state["processed_records"] = None
+        st.session_state["excel_bytes"] = None
+        st.rerun()
     st.markdown("**Đặc tính nổi bật:**")
     st.markdown("- ✅ Tự động phân loại đơn vị Việt Nam (**YN**) và Nước ngoài (**IC**)")
     st.markdown("- ✅ Tự động khớp tháng 1 - 12")
@@ -114,6 +122,18 @@ if uploaded_files:
         start_process = st.button("🚀 Bắt đầu xử lý dữ liệu", type="primary", use_container_width=True)
 
     if start_process:
+        # Tự động tải lại module để luôn nhận thuật toán mới nhất
+        try:
+            import importlib
+            import c12_tool.parser
+            import c12_tool.excel_writer
+            importlib.reload(c12_tool.parser)
+            importlib.reload(c12_tool.excel_writer)
+            from c12_tool.parser import parse_c12_records
+            from c12_tool.excel_writer import export_records
+        except Exception:
+            pass
+
         progress_bar = st.progress(0)
         status_text = st.empty()
         
@@ -170,7 +190,30 @@ if uploaded_files:
     # Hiển thị kết quả đã lưu trong session_state
     if st.session_state.get("processed_records") and st.session_state.get("excel_bytes"):
         recs = st.session_state["processed_records"]
-        st.success(f"🎉 Đã trích xuất thành công **{len(recs)}** thông báo C12!")
+        
+        # Hợp nhất các bản ghi trùng tháng (ví dụ file có cả YN và IC) để bảng xem trước chuẩn xác
+        deduped_display: dict[tuple[str, int], object] = {}
+        for r in recs:
+            k = (r.unit, r.month)
+            if k not in deduped_display:
+                deduped_display[k] = r
+            else:
+                old = deduped_display[k]
+                from c12_tool.parser import C12Record
+                deduped_display[k] = C12Record(
+                    pdf_path=old.pdf_path,
+                    unit=old.unit,
+                    unit_code=old.unit_code or r.unit_code,
+                    month=old.month,
+                    year=old.year or r.year,
+                    b_total=old.b_total if old.b_total is not None else r.b_total,
+                    row2_bhtnld=old.row2_bhtnld if old.row2_bhtnld is not None else r.row2_bhtnld,
+                    c_total=old.c_total if old.c_total is not None else r.c_total,
+                    a_total=old.a_total if old.a_total is not None else r.a_total,
+                )
+        display_recs = list(deduped_display.values())
+        
+        st.success(f"🎉 Đã trích xuất và tổng hợp thành công dữ liệu C12!")
         
         # Hiển thị bảng tổng hợp kết quả xem trước
         st.markdown("### 📊 Xem trước số liệu đã trích xuất")
@@ -183,7 +226,7 @@ if uploaded_files:
                 "Số đã nộp trong kỳ (C)": f"{r.c_total:,.0f}" if r.c_total is not None else "-",
                 "File nguồn": r.pdf_path.name,
             }
-            for r in recs if r.unit == "YN"
+            for r in display_recs if r.unit == "YN"
         ]
         
         ic_data = [
@@ -194,7 +237,7 @@ if uploaded_files:
                 "Số đã nộp trong kỳ (C)": f"{r.c_total:,.0f}" if r.c_total is not None else "-",
                 "File nguồn": r.pdf_path.name,
             }
-            for r in recs if r.unit in ("IC", "IN")
+            for r in display_recs if r.unit in ("IC", "IN")
         ]
         
         tab_yn, tab_ic = st.tabs(["🇻🇳 Đơn vị YN (Việt Nam)", "🌍 Đơn vị IC (Nước Ngoài)"])

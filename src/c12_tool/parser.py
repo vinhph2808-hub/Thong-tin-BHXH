@@ -487,7 +487,7 @@ def _clean_and_merge_line_words(words: list[dict]) -> list[dict]:
     for w in sorted_words:
         placed = False
         for line in lines:
-            if abs(line["y"] - w["y"]) <= 8:
+            if abs(line["y"] - w["y"]) <= 11:
                 line["words"].append(w)
                 placed = True
                 break
@@ -632,13 +632,20 @@ def _parse_ocr_chunks(chunks: list[list[dict]], source_path: Path) -> list[C12Re
                 or "PHAT SINH KY" in k
             )
             if is_stt_b:
+                b_line_idx = idx
                 num_tokens = [(t["x"], _ocr_num(t["t"])) for t in line["tokens"] if _ocr_num(t["t"]) and _ocr_num(t["t"]) > 1000]
+                if not num_tokens and idx + 1 < len(all_lines):
+                    next_l = all_lines[idx + 1]
+                    next_first = next_l["tokens"][0]["t"].strip().upper().rstrip(".,;:") if next_l["tokens"] else ""
+                    if next_first not in ("1", "2", "3", "C", "D", "Đ"):
+                        cand_tokens = [(t["x"], _ocr_num(t["t"])) for t in next_l["tokens"] if _ocr_num(t["t"]) and _ocr_num(t["t"]) > 1000]
+                        if cand_tokens:
+                            num_tokens = cand_tokens
                 if num_tokens:
                     b_total = max(num_tokens, key=lambda x: x[0])[1]  # Cột CỘNG bên phải nhất
                     if len(num_tokens) >= 2:
                         sorted_x = sorted(num_tokens, key=lambda x: x[0])
                         b_bhtnld = sorted_x[-2][1]
-                    b_line_idx = idx
                     break
 
         # Fallback for B if line match wasn't found
@@ -657,10 +664,17 @@ def _parse_ocr_chunks(chunks: list[list[dict]], source_path: Path) -> list[C12Re
 
         # 2. STT 2 (Quỹ lương) dưới dòng STT B
         row2_val = None
-        # Quét các dòng nằm dưới STT B có STT là 2
+        # Quét các dòng nằm dưới STT B có STT là 2 (bỏ qua các dòng con 2.1, 2.2)
         start_search = (b_line_idx + 1) if b_line_idx is not None else 0
-        for line in all_lines[start_search:]:
-            first_t = line["tokens"][0]["t"].strip().upper().rstrip(".,;:") if line["tokens"] else ""
+        for rel_idx, line in enumerate(all_lines[start_search:]):
+            if not line["tokens"]:
+                continue
+            raw_first = line["tokens"][0]["t"].strip()
+            # Bỏ qua dòng con như 2.1, 2.2 (Tăng, Giảm)
+            if re.match(r"^2\s*[\.,]\s*\d", raw_first):
+                continue
+
+            first_t = raw_first.upper().rstrip(".,;:")
             line_str = " ".join(t["t"] for t in line["tokens"])
             k = _key(line_str)
             if first_t in ("C", "D", "Đ"):
@@ -673,6 +687,13 @@ def _parse_ocr_chunks(chunks: list[list[dict]], source_path: Path) -> list[C12Re
             )
             if is_stt_2:
                 nums = [_ocr_num(t["t"]) for t in line["tokens"] if _ocr_num(t["t"]) and 100_000_000 <= _ocr_num(t["t"]) <= 50_000_000_000]
+                if not nums and (start_search + rel_idx + 1) < len(all_lines):
+                    nxt_l = all_lines[start_search + rel_idx + 1]
+                    nxt_raw = nxt_l["tokens"][0]["t"].strip() if nxt_l["tokens"] else ""
+                    if not re.match(r"^2\s*[\.,]\s*\d", nxt_raw):
+                        nxt_first = nxt_raw.upper().rstrip(".,;:")
+                        if nxt_first not in ("3", "C", "D", "Đ"):
+                            nums = [_ocr_num(t["t"]) for t in nxt_l["tokens"] if _ocr_num(t["t"]) and 100_000_000 <= _ocr_num(t["t"]) <= 50_000_000_000]
                 if nums:
                     row2_val = max(nums)  # Cột CỘNG hoặc giá trị Quỹ lương trên dòng
                     break
