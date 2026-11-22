@@ -296,8 +296,15 @@ def _ocr_num(val: object) -> float | None:
     # Reject STT like 1., 2., 1.1, 2.2
     if re.match(r"^\d{1,2}(\.\d{1,2})?\.?$", raw):
         return None
+    # Reject numbers longer than 13 digits (VN BHXH is at most hundreds of billions)
+    clean_digits = re.sub(r"\D", "", raw)
+    if len(clean_digits) > 13:
+        return None
     txt = raw.replace("o", "0").replace("O", "0")
-    return _number(txt)
+    num = _number(txt)
+    if num is not None and (num > 100_000_000_000_000 or num < -100_000_000_000_000):
+        return None
+    return num
 
 
 _PS_OCR_SCRIPT = r"""
@@ -467,7 +474,7 @@ def _clean_and_merge_line_words(words: list[dict]) -> list[dict]:
     for w in sorted_words:
         placed = False
         for line in lines:
-            if abs(line["y"] - w["y"]) <= 14:
+            if abs(line["y"] - w["y"]) <= 8:
                 line["words"].append(w)
                 placed = True
                 break
@@ -486,7 +493,19 @@ def _clean_and_merge_line_words(words: list[dict]) -> list[dict]:
                 gap = nxt["x"] - (cur["x"] + cur["w"])
                 t1 = cur["t"].replace("o", "0").replace("O", "0")
                 t2 = nxt["t"].replace("o", "0").replace("O", "0")
-                if gap < 25 and re.search(r"[0-9,]$", t1) and re.search(r"^[0-9,]", t2):
+                digits1 = re.sub(r"\D", "", t1)
+                digits2 = re.sub(r"\D", "", t2)
+                # NEVER merge if either token is already a complete monetary number (>= 5 digits)
+                is_full1 = len(digits1) >= 5 or bool(re.search(r"\d{3,}[.,]\d{3,}", t1))
+                is_full2 = len(digits2) >= 5 or bool(re.search(r"\d{3,}[.,]\d{3,}", t2))
+                if (
+                    not is_full1
+                    and not is_full2
+                    and len(digits1) + len(digits2) <= 12
+                    and gap <= 10
+                    and re.search(r"[0-9,]$", t1)
+                    and re.search(r"^[0-9,]", t2)
+                ):
                     cur["t"] = cur["t"] + nxt["t"]
                     cur["w"] = (nxt["x"] + nxt["w"]) - cur["x"]
                     i += 1
@@ -592,29 +611,33 @@ def _parse_ocr_chunks(chunks: list[list[dict]], source_path: Path) -> list[C12Re
             line_str = " ".join(t["t"] for t in line["tokens"])
             k = _key(line_str)
             first_t = line["tokens"][0]["t"].upper() if line["tokens"] else ""
-            if "PHAT SINH TRONG" in k or "PHAT SINH KY" in k or (first_t == "B" and "PHAT SINH" in k):
+            is_row_b = (
+                "PHAT SINH TRONG" in k
+                or "PHAT SINH KY" in k
+                or (first_t in ("B", "B.", "B,") and any(w in k for w in ["PHAT", "SINH", "KY"]))
+            )
+            if is_row_b:
                 num_tokens = [(t["x"], _ocr_num(t["t"])) for t in line["tokens"] if _ocr_num(t["t"]) and _ocr_num(t["t"]) > 1000]
                 if num_tokens:
                     b_total = max(num_tokens, key=lambda x: x[0])[1]
                     if len(num_tokens) >= 2:
                         sorted_x = sorted(num_tokens, key=lambda x: x[0])
                         b_bhtnld = sorted_x[-2][1]
-                break
+                    break
 
         # Fallback for B if line match wasn't found
         if b_total is None:
             b_nums = []
             for w in p1_words:
-                if 700 <= w["y"] <= 840:
+                if 680 <= w["y"] <= 900:
                     val = _ocr_num(w["t"])
                     if val and val > 100000:
                         b_nums.append((w["x"], val))
-                        if w["x"] > 1000:
-                            b_total = val
-                        elif 850 <= w["x"] <= 1040:
-                            b_bhtnld = val
-            if b_total is None and b_nums:
+            if b_nums:
                 b_total = max(b_nums, key=lambda item: item[0])[1]
+                bhtn_cands = [v for x, v in b_nums if 800 <= x <= 1050 and v < b_total]
+                if bhtn_cands:
+                    b_bhtnld = bhtn_cands[-1]
 
         # 2. Row 2 (Quỹ lương)
         row2_val = None
@@ -622,14 +645,20 @@ def _parse_ocr_chunks(chunks: list[list[dict]], source_path: Path) -> list[C12Re
             line_str = " ".join(t["t"] for t in line["tokens"])
             k = _key(line_str)
             first_t = line["tokens"][0]["t"].upper() if line["tokens"] else ""
-            if ("QUY" in k and any(w in k for w in ["LUONG", "LEONG", "ITEONG", "TRANG"])) or (first_t == "2" and "QUY" in k):
-                nums = [_ocr_num(t["t"]) for t in line["tokens"] if _ocr_num(t["t"]) and _ocr_num(t["t"]) > 1000000]
+            is_row2 = (
+                any(w in k for w in ["QUY LUONG", "QUY TIEN LUONG", "QUJ LWANG", "ITEONG", "LEONG", "LUONG", "LWANG"])
+                or (first_t in ("2", "2.", "2,") and any(w in k for w in ["QUY", "QUJ", "LWANG", "LUONG", "LEONG"]))
+            )
+            if is_row2:
+                nums = [_ocr_num(t["t"]) for t in line["tokens"] if _ocr_num(t["t"]) and 100_000_000 <= _ocr_num(t["t"]) <= 50_000_000_000]
                 if nums:
                     row2_val = max(nums)
                     break
 
-        if row2_val is None and b_bhtnld:
+        if row2_val is None and b_bhtnld and b_bhtnld > 100_000:
             row2_val = float(round(b_bhtnld * 200))
+        elif row2_val is None and b_total and b_total > 10_000_000:
+            row2_val = float(round((b_total / 0.32) / 1000) * 1000)
 
         # 3. Row C (Số tiền đã nộp trong kỳ) across ALL lines
         c_total = None

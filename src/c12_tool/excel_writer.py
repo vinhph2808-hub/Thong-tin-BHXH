@@ -176,7 +176,22 @@ def export_records(template_path: str | Path, records: Iterable[C12Record], outp
 
     deduped: dict[tuple[str, int], C12Record] = {}
     for record in records:
-        deduped[(record.unit, record.month)] = record
+        key = (record.unit, record.month)
+        if key not in deduped:
+            deduped[key] = record
+        else:
+            old = deduped[key]
+            deduped[key] = C12Record(
+                pdf_path=record.pdf_path if record.b_total is not None else old.pdf_path,
+                unit=old.unit,
+                unit_code=record.unit_code or old.unit_code,
+                month=old.month,
+                year=record.year or old.year,
+                b_total=record.b_total if record.b_total is not None else old.b_total,
+                row2_bhtnld=record.row2_bhtnld if record.row2_bhtnld is not None else old.row2_bhtnld,
+                c_total=record.c_total if record.c_total is not None else old.c_total,
+                a_total=record.a_total if record.a_total is not None else old.a_total,
+            )
 
     for (unit, month), record in sorted(deduped.items()):
         sheet_name = sheet_map.get(unit, unit)
