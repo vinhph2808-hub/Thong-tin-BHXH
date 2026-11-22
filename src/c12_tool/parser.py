@@ -150,22 +150,17 @@ def _row_label(row: list[str]) -> str | None:
     if not row:
         return None
     row_key = _key(" ".join(row))
-    first_col = _plain(row[0]).upper()
-    if "KY TRUOC MANG SANG" in row_key or (first_col == "A" and ("MANG SANG" in row_key or "KY TRUOC" in row_key)):
+    first_col = _plain(row[0]).upper().rstrip(".,;:")
+    # Căn cứ trực tiếp vào STT A, B, 2, C
+    if first_col == "A" or "KY TRUOC MANG SANG" in row_key:
         return "A"
-    if "PHAT SINH TRONG KY" in row_key or "PHAT SINH KY NAY" in row_key or (first_col == "B" and "PHAT SINH" in row_key):
+    if first_col == "B" or "PHAT SINH TRONG KY" in row_key or "PHAT SINH KY NAY" in row_key:
         return "B"
-    if (
-        "SO TIEN DA NOP" in row_key
-        or "SO TIEN NOP" in row_key
-        or "DA NOP TRONG" in row_key
-        or "NOP TRONG KY" in row_key
-        or (first_col == "C" and any(k in row_key for k in ("NOP", "TIEN", "DA NOP", "SO TIEN")))
-    ):
+    if first_col == "C" or "SO TIEN DA NOP" in row_key or "DA NOP TRONG" in row_key or "NOP TRONG KY" in row_key:
         return "C"
-    if "QUY LUONG" in row_key or (first_col == "2" and "QUY LUONG" in row_key):
+    if first_col == "2" or "QUY LUONG" in row_key:
         return "QUY_LUONG"
-    if "PHAN BO TIEN DONG" in row_key or first_col == "D":
+    if first_col in ("D", "Đ") or "PHAN BO TIEN DONG" in row_key:
         return "D"
     return None
 
@@ -189,17 +184,24 @@ def _extract_from_tables(tables: list[list[list[object]]]) -> dict[str, float]:
                 continue
         in_section_a = False
         saw_section_a = False
+        in_section_b = False
+        saw_row_2_under_b = False
         for r_i, row in enumerate(rows[data_start:]):
             label = _row_label(row)
             if label == "A":
                 in_section_a = True
                 saw_section_a = True
+                in_section_b = False
                 val = _number(row[total_col]) if total_col is not None and total_col < len(row) else None
                 if val is not None:
                     candidates["A"].append(val)
                 continue
-            elif label in {"B", "C"}:
+            elif label == "B":
                 in_section_a = False
+                in_section_b = True
+            elif label in {"C", "D"}:
+                in_section_a = False
+                in_section_b = False
 
             if in_section_a:
                 val = _number(row[total_col]) if total_col is not None and total_col < len(row) else None
@@ -211,17 +213,28 @@ def _extract_from_tables(tables: list[list[list[object]]]) -> dict[str, float]:
                         candidates["A"].append(val)
                 continue
 
-            if label not in {"B", "C", "QUY_LUONG"}:
+            # Chỉ nhận diện Quỹ lương (STT 2) khi đang nằm dưới mục B
+            if label == "QUY_LUONG":
+                if not in_section_b or saw_row_2_under_b:
+                    continue
+                saw_row_2_under_b = True
+                row_nums = [_number(cell) for cell in row[2:] if _number(cell) is not None and _number(cell) > 1000000]
+                value = Counter(row_nums).most_common(1)[0][0] if row_nums else None
+                if value is not None:
+                    candidates["2"].append(value)
                 continue
-            col = bhtnld_col if label == "QUY_LUONG" else total_col
+
+            if label not in {"B", "C"}:
+                continue
+            col = total_col
             value = _number(row[col]) if col is not None and col < len(row) else None
             if value is None:
                 row_nums = [_number(cell) for cell in row[2:] if _number(cell) is not None]
                 if row_nums:
-                    value = max(row_nums) if label == "QUY_LUONG" else row_nums[-1]
+                    value = row_nums[-1]
 
             if value is not None:
-                candidates["2" if label == "QUY_LUONG" else label].append(value)
+                candidates[label].append(value)
             elif label == "C":
                 # Look for UNC or payment sub-rows under C before the next section
                 unc_sum = 0.0
@@ -604,25 +617,28 @@ def _parse_ocr_chunks(chunks: list[list[dict]], source_path: Path) -> list[C12Re
                 l["page"] = p_idx
                 all_lines.append(l)
 
-        # 1. Row B (Phát sinh trong kỳ) & BHTNLĐ
+        # 1. STT B (Tổng phát sinh 100%) - Cột CỘNG
         b_total = None
         b_bhtnld = None
-        for line in all_lines:
+        b_line_idx = None
+        for idx, line in enumerate(all_lines):
             line_str = " ".join(t["t"] for t in line["tokens"])
             k = _key(line_str)
-            first_t = line["tokens"][0]["t"].upper() if line["tokens"] else ""
-            is_row_b = (
-                "PHAT SINH TRONG" in k
-                or "PHAT SINH KY" in k
+            first_t = line["tokens"][0]["t"].strip().upper().rstrip(".,;:") if line["tokens"] else ""
+            is_stt_b = (
+                first_t == "B"
                 or (first_t in ("B", "B.", "B,") and any(w in k for w in ["PHAT", "SINH", "KY"]))
+                or "PHAT SINH TRONG" in k
+                or "PHAT SINH KY" in k
             )
-            if is_row_b:
+            if is_stt_b:
                 num_tokens = [(t["x"], _ocr_num(t["t"])) for t in line["tokens"] if _ocr_num(t["t"]) and _ocr_num(t["t"]) > 1000]
                 if num_tokens:
-                    b_total = max(num_tokens, key=lambda x: x[0])[1]
+                    b_total = max(num_tokens, key=lambda x: x[0])[1]  # Cột CỘNG bên phải nhất
                     if len(num_tokens) >= 2:
                         sorted_x = sorted(num_tokens, key=lambda x: x[0])
                         b_bhtnld = sorted_x[-2][1]
+                    b_line_idx = idx
                     break
 
         # Fallback for B if line match wasn't found
@@ -639,20 +655,26 @@ def _parse_ocr_chunks(chunks: list[list[dict]], source_path: Path) -> list[C12Re
                 if bhtn_cands:
                     b_bhtnld = bhtn_cands[-1]
 
-        # 2. Row 2 (Quỹ lương)
+        # 2. STT 2 (Quỹ lương) dưới dòng STT B
         row2_val = None
-        for line in all_lines:
+        # Quét các dòng nằm dưới STT B có STT là 2
+        start_search = (b_line_idx + 1) if b_line_idx is not None else 0
+        for line in all_lines[start_search:]:
+            first_t = line["tokens"][0]["t"].strip().upper().rstrip(".,;:") if line["tokens"] else ""
             line_str = " ".join(t["t"] for t in line["tokens"])
             k = _key(line_str)
-            first_t = line["tokens"][0]["t"].upper() if line["tokens"] else ""
-            is_row2 = (
-                any(w in k for w in ["QUY LUONG", "QUY TIEN LUONG", "QUJ LWANG", "ITEONG", "LEONG", "LUONG", "LWANG"])
+            if first_t in ("C", "D", "Đ"):
+                break
+            is_stt_2 = (
+                first_t == "2"
                 or (first_t in ("2", "2.", "2,") and any(w in k for w in ["QUY", "QUJ", "LWANG", "LUONG", "LEONG"]))
+                or "QUY LUONG" in k
+                or "QUJ LWANG" in k
             )
-            if is_row2:
+            if is_stt_2:
                 nums = [_ocr_num(t["t"]) for t in line["tokens"] if _ocr_num(t["t"]) and 100_000_000 <= _ocr_num(t["t"]) <= 50_000_000_000]
                 if nums:
-                    row2_val = max(nums)
+                    row2_val = max(nums)  # Cột CỘNG hoặc giá trị Quỹ lương trên dòng
                     break
 
         if row2_val is None and b_bhtnld and b_bhtnld > 100_000:
@@ -660,27 +682,31 @@ def _parse_ocr_chunks(chunks: list[list[dict]], source_path: Path) -> list[C12Re
         elif row2_val is None and b_total and b_total > 10_000_000:
             row2_val = float(round((b_total / 0.32) / 1000) * 1000)
 
-        # 3. Row C (Số tiền đã nộp trong kỳ) across ALL lines
+        # 3. STT C (Nộp tiền bảo hiểm trong kỳ) - Cột CỘNG
         c_total = None
         for i, line in enumerate(all_lines):
             line_str = " ".join(t["t"] for t in line["tokens"])
             k = _key(line_str)
-            first_t = line["tokens"][0]["t"].upper() if line["tokens"] else ""
-            if (
-                "SO TIEN DA NOP" in k
+            first_t = line["tokens"][0]["t"].strip().upper().rstrip(".,;:") if line["tokens"] else ""
+            is_stt_c = (
+                first_t == "C"
+                or (first_t in ("C", "C.", "C,") and any(w in k for w in ["NOP", "TIEN", "DA NOP"]))
+                or "SO TIEN DA NOP" in k
                 or "SO TIEN NOP" in k
                 or "DA NOP TRONG" in k
-                or "NOP TRONG K" in k
-                or (first_t == "C" and any(w in k for w in ["NOP", "TIEN", "DA NOP"]))
-            ):
+            )
+            if is_stt_c:
                 num_tokens = [(t["x"], _ocr_num(t["t"])) for t in line["tokens"] if _ocr_num(t["t"]) and _ocr_num(t["t"]) > 100000]
                 if num_tokens:
-                    c_total = max(num_tokens, key=lambda x: x[0])[1]
+                    c_total = max(num_tokens, key=lambda x: x[0])[1]  # Cột CỘNG bên phải nhất
                 else:
-                    # Look at immediately subsequent lines (e.g. + UNC...) before D
-                    for sub_line in all_lines[i + 1 : i + 5]:
+                    # Look at immediately subsequent lines (e.g. + UNC...) before STT D
+                    for sub_line in all_lines[i + 1 : i + 6]:
                         sub_str = " ".join(t["t"] for t in sub_line["tokens"])
                         sub_k = _key(sub_str)
+                        sub_first = sub_line["tokens"][0]["t"].strip().upper().rstrip(".,;:") if sub_line["tokens"] else ""
+                        if sub_first in ("D", "Đ", "A", "B"):
+                            break
                         if any(stop_w in sub_k for stop_w in ["PHAN BO", "D ", "CHUYEN KY", "SO LAO DONG"]):
                             break
                         s_nums = [(t["x"], _ocr_num(t["t"])) for t in sub_line["tokens"] if _ocr_num(t["t"]) and _ocr_num(t["t"]) > 100000]
