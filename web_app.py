@@ -13,6 +13,37 @@ from c12_tool.parser import parse_c12_records, C12ParseError
 from c12_tool.excel_writer import export_records, ExcelWriteError
 from c12_tool.tracker import log_system_access
 
+def parse_user_agent(ua_string: str) -> str:
+    """Chuyển chuỗi User-Agent thành tên thiết bị và trình duyệt gọn gàng."""
+    if not ua_string or ua_string == "Trình duyệt Web":
+        return "Trình duyệt Web"
+    
+    os_name = "Máy tính"
+    if "Windows NT 10.0" in ua_string:
+        os_name = "Windows 10/11"
+    elif any(k in ua_string for k in ("Windows NT 6.3", "Windows NT 6.2", "Windows NT 6.1")):
+        os_name = "Windows"
+    elif "Macintosh" in ua_string:
+        os_name = "Mac"
+    elif "iPhone" in ua_string:
+        os_name = "iPhone"
+    elif "Android" in ua_string:
+        os_name = "Android"
+    elif "Linux" in ua_string:
+        os_name = "Linux"
+
+    browser = "Browser"
+    if "Edg/" in ua_string:
+        browser = "Edge"
+    elif "Chrome/" in ua_string:
+        browser = "Chrome"
+    elif "Firefox/" in ua_string:
+        browser = "Firefox"
+    elif "Safari/" in ua_string and "Chrome" not in ua_string:
+        browser = "Safari"
+
+    return f"{os_name} ({browser})"
+
 def get_client_info() -> tuple[str, str]:
     ip = "Khách Web"
     ua = "Trình duyệt Web"
@@ -20,11 +51,31 @@ def get_client_info() -> tuple[str, str]:
         ctx = getattr(st, "context", None)
         if ctx and hasattr(ctx, "headers"):
             h = ctx.headers
-            ip = h.get("x-forwarded-for") or h.get("remote-addr") or "Khách Web"
+            raw_ip = h.get("x-forwarded-for") or h.get("remote-addr") or "Khách Web"
+            ip = raw_ip.split(",")[0].strip() if "," in raw_ip else raw_ip.strip()
             ua = h.get("user-agent") or "Trình duyệt Web"
     except Exception:
         pass
-    return ip, ua
+
+    # 1. Nếu người dùng nhập tên máy hoặc truyền qua link ?device=...
+    custom_device = st.session_state.get("custom_device_name", "").strip()
+    if custom_device:
+        return ip, custom_device
+
+    # 2. Nếu chạy trực tiếp trên máy Windows cục bộ
+    try:
+        from c12_tool.tracker import get_local_device_info
+        import platform
+        if platform.system() == "Windows":
+            local_name = get_local_device_info()
+            if local_name and "PC" not in local_name:
+                return ip, local_name
+    except Exception:
+        pass
+
+    # 3. Phân tích User-Agent thành tên thiết bị gọn gàng
+    clean_device = parse_user_agent(ua)
+    return ip, clean_device
 
 # Cấu hình trang
 st.set_page_config(
@@ -99,6 +150,13 @@ if "excel_bytes" not in st.session_state:
     st.session_state["excel_bytes"] = None
 if "uploader_key" not in st.session_state:
     st.session_state["uploader_key"] = 0
+if "custom_device_name" not in st.session_state:
+    qp_device = ""
+    try:
+        qp_device = st.query_params.get("device") or st.query_params.get("may") or ""
+    except Exception:
+        pass
+    st.session_state["custom_device_name"] = str(qp_device).strip()
 
 # Tự động ghi nhận thiết bị / máy tính truy cập hệ thống vào Google Sheet
 if "logged_access" not in st.session_state:
@@ -119,6 +177,25 @@ with st.sidebar:
         "2. Bấm **Bắt đầu xử lý** để hệ thống tự động nhận diện và trích xuất số liệu.\n"
         "3. Xem trước bảng kết quả và bấm **Tải file Excel**."
     )
+    
+    # Cho phép nhập tên máy tính hoặc lấy từ URL link (?device=SG-KI-VINHPH-UI)
+    device_input = st.text_input(
+        "💻 Tên máy tính / Người dùng:",
+        value=st.session_state["custom_device_name"],
+        placeholder="vd: SG-KI-VINHPH-UI",
+        help="Nhập tên máy của bạn để hệ thống cập nhật đúng tên thiết bị vào Google Sheet.",
+    )
+    if device_input.strip() != st.session_state["custom_device_name"]:
+        st.session_state["custom_device_name"] = device_input.strip()
+        c_ip, c_ua = get_client_info()
+        log_system_access(
+            app_type="Website Streamlit",
+            action="Xác nhận tên máy tính",
+            user_info=c_ip,
+            device_info=c_ua,
+            details=f"Thiết lập tên máy: {c_ua}",
+        )
+
     st.markdown("---")
     if st.button("🔄 Làm mới / Xóa file & dữ liệu cũ", use_container_width=True):
         st.session_state["processed_records"] = None

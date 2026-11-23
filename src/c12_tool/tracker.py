@@ -86,6 +86,20 @@ def _send_log_payload(payload: dict) -> None:
         # Chạy ngầm, không làm gián đoạn hay báo lỗi ứng dụng
         pass
 
+def get_local_device_info() -> str:
+    """Lấy tên máy tính và model phần cứng (vd: SG-KI-VINHPH-UI (21JK006HVA))."""
+    name = os.environ.get("COMPUTERNAME") or socket.gethostname() or "Máy tính"
+    model = ""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"HARDWARE\DESCRIPTION\System\BIOS") as key:
+            model = winreg.QueryValueEx(key, "SystemProductName")[0].strip()
+    except Exception:
+        pass
+    if model and model.lower() not in ("system product name", "to be filled by o.e.m.", "system manufacturer"):
+        return f"{name} ({model})"
+    return name
+
 def log_system_access(
     app_type: str = "Website",
     action: str = "Truy cập hệ thống",
@@ -96,14 +110,11 @@ def log_system_access(
     """
     Ghi lại lịch sử đăng nhập/sử dụng vào Google Sheet bất đồng bộ.
     """
-    # Tự động lấy thông tin máy nếu không truyền
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     if not device_info:
         try:
-            hostname = socket.gethostname()
-            os_name = f"{platform.system()} {platform.release()}"
-            device_info = f"{hostname} ({os_name})"
+            device_info = get_local_device_info()
         except Exception:
             device_info = "Máy khách"
 

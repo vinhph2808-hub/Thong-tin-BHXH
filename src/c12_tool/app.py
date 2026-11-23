@@ -192,8 +192,12 @@ class C12App(TkinterDnD.Tk):
         self._build_ui()
         self._update_stats()
         try:
-            from .tracker import log_system_access
-            log_system_access(app_type="Phần mềm Desktop", action="Khởi động ứng dụng")
+            from .tracker import log_system_access, get_local_device_info
+            log_system_access(
+                app_type="Phần mềm Desktop",
+                action="Khởi động ứng dụng",
+                device_info=get_local_device_info(),
+            )
         except Exception:
             pass
 
@@ -820,10 +824,11 @@ class C12App(TkinterDnD.Tk):
             output = export_records(self.template, records, self.output_dir)
 
             try:
-                from .tracker import log_system_access
+                from .tracker import log_system_access, get_local_device_info
                 log_system_access(
                     app_type="Phần mềm Desktop",
                     action=f"Xuất Excel ({len(records)} tháng từ {total_files} file)",
+                    device_info=get_local_device_info(),
                     details=output.name,
                 )
             except Exception:
