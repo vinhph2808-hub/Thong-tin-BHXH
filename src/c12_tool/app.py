@@ -34,12 +34,12 @@ from .excel_writer import export_records
 from .license_dialog import AdminLicenseDialog, ensure_authorized
 from .license_manager import is_master_machine
 from .parser import C12ParseError, C12Record, parse_c12_records
+from .archive_utils import SUPPORTED_DOC_EXTS, ARCHIVE_EXTS, is_archive_file, extract_archive
 
 APP_TITLE = "Xuất thông báo BHXH C12"
 APP_VERSION = "v2.0 Pro"
 
-
-SUPPORTED_EXTS = {".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp"}
+SUPPORTED_EXTS = SUPPORTED_DOC_EXTS | ARCHIVE_EXTS
 
 
 def enable_high_dpi_awareness() -> None:
@@ -182,6 +182,8 @@ class C12App(TkinterDnD.Tk):
         self.minsize(880, 580)
         self.configure(bg="#F1F5F9")
 
+        import tempfile
+        self._archive_temp_dir = tempfile.TemporaryDirectory()
         self.pdfs: list[Path] = []
         self.template: Path | None = find_default_template()
         self.output_dir = app_folder() / "Ket_qua"
@@ -686,14 +688,23 @@ class C12App(TkinterDnD.Tk):
         else:
             subprocess.Popen(["xdg-open", str(self.output_dir)])
 
+    def destroy(self) -> None:
+        try:
+            if hasattr(self, "_archive_temp_dir"):
+                self._archive_temp_dir.cleanup()
+        except Exception:
+            pass
+        super().destroy()
+
     def choose_pdfs(self) -> None:
         paths = filedialog.askopenfilenames(
-            title="Chọn các file PDF hoặc hình ảnh C12",
+            title="Chọn các file PDF, hình ảnh hoặc file nén C12",
             filetypes=[
                 (
-                    "Tài liệu C12 (*.pdf, *.png, *.jpg...)",
-                    "*.pdf;*.png;*.jpg;*.jpeg;*.bmp;*.tiff;*.webp;*.PDF;*.PNG;*.JPG;*.JPEG;*.BMP;*.TIFF;*.WEBP",
+                    "Tài liệu C12 (*.pdf, *.png, *.zip...)",
+                    "*.pdf;*.png;*.jpg;*.jpeg;*.bmp;*.tiff;*.webp;*.zip;*.rar;*.7z;*.tar;*.gz;*.tgz;*.PDF;*.PNG;*.JPG;*.JPEG;*.ZIP;*.RAR;*.7Z",
                 ),
+                ("File nén (*.zip, *.rar, *.7z...)", "*.zip;*.rar;*.7z;*.tar;*.gz;*.tgz;*.ZIP;*.RAR;*.7Z"),
                 ("Tập tin PDF (*.pdf)", "*.pdf;*.PDF"),
                 ("Hình ảnh (*.png, *.jpg...)", "*.png;*.jpg;*.jpeg;*.bmp;*.tiff;*.webp;*.PNG;*.JPG;*.JPEG"),
                 ("Tất cả tập tin (*.*)", "*.*"),
@@ -703,7 +714,7 @@ class C12App(TkinterDnD.Tk):
             self.add_pdfs([Path(p) for p in paths])
 
     def choose_directory(self) -> None:
-        folder = filedialog.askdirectory(title="Chọn thư mục chứa file PDF / hình ảnh C12")
+        folder = filedialog.askdirectory(title="Chọn thư mục chứa file PDF / hình ảnh / file nén C12")
         if folder:
             dir_path = Path(folder)
             found = [
@@ -711,7 +722,7 @@ class C12App(TkinterDnD.Tk):
                 if p.is_file() and p.suffix.lower() in SUPPORTED_EXTS
             ]
             if not found:
-                messagebox.showinfo(APP_TITLE, f"Không tìm thấy file PDF hoặc hình ảnh nào trong thư mục:\n{dir_path}")
+                messagebox.showinfo(APP_TITLE, f"Không tìm thấy file C12 nào trong thư mục:\n{dir_path}")
                 return
             self.add_pdfs(found)
 
@@ -726,16 +737,46 @@ class C12App(TkinterDnD.Tk):
         for path in paths:
             if path.is_dir():
                 for sub in path.rglob("*"):
-                    if sub.is_file() and sub.suffix.lower() in SUPPORTED_EXTS:
-                        key = str(sub.resolve()).lower()
-                        if key not in existing:
-                            self.pdfs.append(sub)
-                            existing.add(key)
-                            added += 1
+                    if sub.is_file():
+                        if sub.suffix.lower() in SUPPORTED_DOC_EXTS:
+                            key = str(sub.resolve()).lower()
+                            if key not in existing:
+                                self.pdfs.append(sub)
+                                existing.add(key)
+                                added += 1
+                        elif is_archive_file(sub):
+                            sub_unpacked = Path(self._archive_temp_dir.name) / f"{sub.stem}_{added}"
+                            docs = extract_archive(sub, sub_unpacked)
+                            for d in docs:
+                                key = str(d.resolve()).lower()
+                                if key not in existing:
+                                    self.pdfs.append(d)
+                                    existing.add(key)
+                                    added += 1
                 continue
+
             if not path.is_file() or path.suffix.lower() not in SUPPORTED_EXTS:
                 ignored += 1
                 continue
+
+            # Xử lý nếu là file nén (.zip, .rar, .7z...)
+            if is_archive_file(path):
+                self._set_status(f"Đang giải nén tập tin {path.name}...", 0, icon="📦", color="#2563EB")
+                self.update_idletasks()
+                unpacked_dest = Path(self._archive_temp_dir.name) / f"{path.stem}_{added}"
+                docs = extract_archive(path, unpacked_dest)
+                if not docs:
+                    messagebox.showwarning(APP_TITLE, f"Tập tin nén '{path.name}' không chứa file PDF hoặc ảnh C12 nào.")
+                else:
+                    for d in docs:
+                        key = str(d.resolve()).lower()
+                        if key not in existing:
+                            self.pdfs.append(d)
+                            existing.add(key)
+                            added += 1
+                self._set_status("Sẵn sàng xử lý", len(self.pdfs), icon="ℹ️", color="#64748B")
+                continue
+
             key = str(path.resolve()).lower()
             if key not in existing:
                 self.pdfs.append(path)
@@ -744,7 +785,7 @@ class C12App(TkinterDnD.Tk):
 
         self._refresh_list()
         if ignored > 0:
-            messagebox.showwarning(APP_TITLE, f"Đã bỏ qua {ignored} file không đúng định dạng hỗ trợ (.pdf, .png, .jpg...).")
+            messagebox.showwarning(APP_TITLE, f"Đã bỏ qua {ignored} file không đúng định dạng hỗ trợ (.pdf, .png, .jpg, .zip, .rar...).")
 
     def remove_selected(self) -> None:
         selected_items = self.tree.selection()

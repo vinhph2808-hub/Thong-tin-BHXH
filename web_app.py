@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 from c12_tool.parser import parse_c12_records, C12ParseError
 from c12_tool.excel_writer import export_records, ExcelWriteError
 from c12_tool.tracker import log_system_access
+from c12_tool.archive_utils import is_archive_file, extract_archive
 
 def parse_user_agent(ua_string: str) -> str:
     """Chuyển chuỗi User-Agent thành tên thiết bị và trình duyệt gọn gàng."""
@@ -121,7 +122,7 @@ st.markdown(
 # Tiêu đề ứng dụng
 st.markdown('<div class="main-header">📑 HỆ THỐNG XỬ LÝ & XUẤT THÔNG BÁO BHXH C12</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="sub-header">Tự động đọc dữ liệu C12 (Việt Nam & Nước Ngoài), trích xuất chỉ tiêu B, Quỹ lương (STT 2), C (Đã nộp) theo cột CỘNG và điền chuẩn vào mẫu Excel.</div>',
+    '<div class="sub-header">Tự động đọc dữ liệu C12 (PDF, Ảnh, File nén ZIP/RAR), trích xuất chỉ tiêu B, Quỹ lương (STT 2), C (Đã nộp) theo cột CỘNG và điền chuẩn vào mẫu Excel.</div>',
     unsafe_allow_html=True,
 )
 
@@ -205,11 +206,11 @@ with st.sidebar:
 
 # Khu vực Upload tập tin
 uploaded_files = st.file_uploader(
-    "📤 Chọn hoặc kéo thả các tập tin C12 (PDF hoặc Ảnh scan):",
-    type=["pdf", "png", "jpg", "jpeg"],
+    "📤 Chọn hoặc kéo thả các tập tin C12 (PDF, Ảnh scan hoặc File nén .ZIP, .RAR, .7Z):",
+    type=["pdf", "png", "jpg", "jpeg", "zip", "rar", "7z", "tar", "gz", "tgz"],
     accept_multiple_files=True,
     key=f"c12_files_{st.session_state['uploader_key']}",
-    help="Có thể chọn nhiều file cùng lúc của nhiều tháng khác nhau.",
+    help="Có thể chọn nhiều file PDF, ảnh hoặc file nén (.zip, .rar, .7z) chứa nhiều tháng khác nhau.",
 )
 
 if uploaded_files:
@@ -225,10 +226,13 @@ if uploaded_files:
             import importlib
             import c12_tool.parser
             import c12_tool.excel_writer
+            import c12_tool.archive_utils
+            importlib.reload(c12_tool.archive_utils)
             importlib.reload(c12_tool.parser)
             importlib.reload(c12_tool.excel_writer)
             from c12_tool.parser import parse_c12_records
             from c12_tool.excel_writer import export_records
+            from c12_tool.archive_utils import is_archive_file, extract_archive
         except Exception:
             pass
 
@@ -241,21 +245,35 @@ if uploaded_files:
         # Tạo thư mục tạm để lưu file upload cho parser xử lý
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
-            total = len(uploaded_files)
+            files_to_process: list[tuple[Path, str]] = []
             
-            for idx, uploaded_file in enumerate(uploaded_files):
-                status_text.text(f"Đang xử lý [{idx+1}/{total}]: {uploaded_file.name}...")
+            for uploaded_file in uploaded_files:
                 file_dest = tmp_path / uploaded_file.name
                 with open(file_dest, "wb") as f:
                     f.write(uploaded_file.getbuffer())
                 
+                if is_archive_file(file_dest):
+                    status_text.text(f"📦 Đang giải nén tập tin: {uploaded_file.name}...")
+                    unpacked_dir = tmp_path / f"unpacked_{file_dest.stem}"
+                    docs = extract_archive(file_dest, unpacked_dir)
+                    if docs:
+                        for d in docs:
+                            files_to_process.append((d, f"{uploaded_file.name} ➔ {d.name}"))
+                    else:
+                        errors.append(f"{uploaded_file.name}: Không tìm thấy file PDF hoặc ảnh C12 nào trong file nén.")
+                else:
+                    files_to_process.append((file_dest, uploaded_file.name))
+            
+            num_files = len(files_to_process)
+            for idx, (doc_path, display_name) in enumerate(files_to_process):
+                status_text.text(f"Đang xử lý [{idx+1}/{num_files}]: {display_name}...")
                 try:
-                    recs = parse_c12_records(file_dest)
+                    recs = parse_c12_records(doc_path)
                     all_records.extend(recs)
                 except Exception as e:
-                    errors.append(f"{uploaded_file.name}: {e}")
+                    errors.append(f"{display_name}: {e}")
                 
-                progress_bar.progress(int((idx + 1) / total * 100))
+                progress_bar.progress(int((idx + 1) / max(1, num_files) * 100))
         
         status_text.empty()
         progress_bar.empty()

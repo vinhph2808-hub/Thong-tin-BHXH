@@ -908,6 +908,27 @@ def parse_c12_records(pdf_path: str | Path) -> list[C12Record]:
     path = Path(pdf_path)
     suffix = path.suffix.lower()
 
+    # Tập tin nén (.zip, .rar, .7z, .tar, .gz...)
+    from .archive_utils import is_archive_file, extract_archive
+    if is_archive_file(path):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp_archive_dir:
+            docs = extract_archive(path, tmp_archive_dir)
+            if not docs:
+                raise C12ParseError(f"Tập tin nén {path.name} không chứa tài liệu PDF hoặc hình ảnh C12 nào.")
+            archive_records: list[C12Record] = []
+            errors_in_zip: list[str] = []
+            for doc in docs:
+                try:
+                    recs = parse_c12_records(doc)
+                    archive_records.extend(recs)
+                except Exception as ex:
+                    errors_in_zip.append(f"{doc.name}: {ex}")
+            if not archive_records:
+                err_detail = "; ".join(errors_in_zip) if errors_in_zip else "Không có số liệu"
+                raise C12ParseError(f"Không trích xuất được dữ liệu C12 nào từ file nén {path.name} ({err_detail}).")
+            return archive_records
+
     # Image files (.png, .jpg, .jpeg, etc.)
     if suffix in {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp"}:
         ocr_results = _run_ocr([path])
