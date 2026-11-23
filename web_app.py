@@ -83,7 +83,7 @@ st.set_page_config(
     page_title="Xuất Dữ Liệu Thông Báo BHXH (C12)",
     page_icon="📑",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 # Custom CSS cho giao diện hiện đại, chuyên nghiệp
@@ -172,13 +172,6 @@ if "logged_access" not in st.session_state:
     )
 
 with st.sidebar:
-    st.header("⚙️ Hướng dẫn & Tùy chọn")
-    st.info(
-        "1. Kéo thả hoặc chọn các file **PDF / Hình ảnh** thông báo C12 vào khung bên phải.\n"
-        "2. Bấm **Bắt đầu xử lý** để hệ thống tự động nhận diện và trích xuất số liệu.\n"
-        "3. Xem trước bảng kết quả và bấm **Tải file Excel**."
-    )
-    st.markdown("---")
     if st.button("🔄 Làm mới / Xóa file & dữ liệu cũ", use_container_width=True):
         st.session_state["processed_records"] = None
         st.session_state["excel_bytes"] = None
@@ -197,9 +190,15 @@ uploaded_files = st.file_uploader(
 if uploaded_files:
     st.success(f"Đã chọn **{len(uploaded_files)}** tập tin sẵn sàng xử lý.")
     
-    col_btn, col_empty = st.columns([1, 3])
+    col_btn, col_reset, col_empty = st.columns([1, 1, 2])
     with col_btn:
         start_process = st.button("🚀 Bắt đầu xử lý dữ liệu", type="primary", use_container_width=True)
+    with col_reset:
+        if st.button("🔄 Làm mới / Xóa file", use_container_width=True):
+            st.session_state["processed_records"] = None
+            st.session_state["excel_bytes"] = None
+            st.session_state["uploader_key"] += 1
+            st.rerun()
 
     if start_process:
         # Tự động tải lại module để luôn nhận thuật toán mới nhất
