@@ -178,25 +178,6 @@ with st.sidebar:
         "2. Bấm **Bắt đầu xử lý** để hệ thống tự động nhận diện và trích xuất số liệu.\n"
         "3. Xem trước bảng kết quả và bấm **Tải file Excel**."
     )
-    
-    # Cho phép nhập tên máy tính hoặc lấy từ URL link (?device=SG-KI-VINHPH-UI)
-    device_input = st.text_input(
-        "💻 Tên máy tính / Người dùng:",
-        value=st.session_state["custom_device_name"],
-        placeholder="vd: SG-KI-VINHPH-UI",
-        help="Nhập tên máy của bạn để hệ thống cập nhật đúng tên thiết bị vào Google Sheet.",
-    )
-    if device_input.strip() != st.session_state["custom_device_name"]:
-        st.session_state["custom_device_name"] = device_input.strip()
-        c_ip, c_ua = get_client_info()
-        log_system_access(
-            app_type="Website Streamlit",
-            action="Xác nhận tên máy tính",
-            user_info=c_ip,
-            device_info=c_ua,
-            details=f"Thiết lập tên máy: {c_ua}",
-        )
-
     st.markdown("---")
     if st.button("🔄 Làm mới / Xóa file & dữ liệu cũ", use_container_width=True):
         st.session_state["processed_records"] = None
