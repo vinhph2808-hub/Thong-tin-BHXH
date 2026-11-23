@@ -70,10 +70,6 @@ st.markdown(
 # Tiêu đề ứng dụng
 st.markdown('<div class="main-header">📑 HỆ THỐNG XỬ LÝ & XUẤT THÔNG BÁO BHXH C12</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div style="background-color: #10B981; color: white; padding: 4px 12px; border-radius: 6px; font-weight: bold; font-size: 13px; display: inline-block; margin-bottom: 8px;">✅ Phiên bản v2.4 (23/11/2026) - Khắc phục hiển thị Tháng 2 & Xóa sạch file đính kèm</div>',
-    unsafe_allow_html=True,
-)
-st.markdown(
     '<div class="sub-header">Tự động đọc dữ liệu C12 (Việt Nam & Nước Ngoài), trích xuất chỉ tiêu B, Quỹ lương (STT 2), C (Đã nộp) theo cột CỘNG và điền chuẩn vào mẫu Excel.</div>',
     unsafe_allow_html=True,
 )
