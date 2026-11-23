@@ -56,7 +56,7 @@ st.markdown(
 # Tiêu đề ứng dụng
 st.markdown('<div class="main-header">📑 HỆ THỐNG XỬ LÝ & XUẤT THÔNG BÁO BHXH C12</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div style="background-color: #10B981; color: white; padding: 4px 12px; border-radius: 6px; font-weight: bold; font-size: 13px; display: inline-block; margin-bottom: 8px;">✅ Phiên bản v2.3 (22/11/2026) - Chuẩn hóa quét STT B, 2, C & Cột CỘNG</div>',
+    '<div style="background-color: #10B981; color: white; padding: 4px 12px; border-radius: 6px; font-weight: bold; font-size: 13px; display: inline-block; margin-bottom: 8px;">✅ Phiên bản v2.4 (23/11/2026) - Khắc phục hiển thị Tháng 2 & Xóa sạch file đính kèm</div>',
     unsafe_allow_html=True,
 )
 st.markdown(
@@ -82,6 +82,14 @@ def get_template_path() -> Path:
             return p
     raise FileNotFoundError("Không tìm thấy file Excel mẫu (THÔNG BÁO BXH.xlsx hoặc template.xlsx) trên máy chủ!")
 
+# Khởi tạo session state lưu trữ kết quả và key file uploader
+if "processed_records" not in st.session_state:
+    st.session_state["processed_records"] = None
+if "excel_bytes" not in st.session_state:
+    st.session_state["excel_bytes"] = None
+if "uploader_key" not in st.session_state:
+    st.session_state["uploader_key"] = 0
+
 with st.sidebar:
     st.header("⚙️ Hướng dẫn & Tùy chọn")
     st.info(
@@ -90,27 +98,18 @@ with st.sidebar:
         "3. Xem trước bảng kết quả và bấm **Tải file Excel**."
     )
     st.markdown("---")
-    if st.button("🔄 Làm mới / Xóa dữ liệu cũ", use_container_width=True):
+    if st.button("🔄 Làm mới / Xóa file & dữ liệu cũ", use_container_width=True):
         st.session_state["processed_records"] = None
         st.session_state["excel_bytes"] = None
+        st.session_state["uploader_key"] += 1
         st.rerun()
-    st.markdown("**Đặc tính nổi bật:**")
-    st.markdown("- ✅ Tự động phân loại đơn vị Việt Nam (**YN**) và Nước ngoài (**IC**)")
-    st.markdown("- ✅ Tự động khớp tháng 1 - 12")
-    st.markdown("- ✅ Điền đúng số tiền mang sang và số tiền đã nộp")
-    st.markdown("- ✅ Chạy mượt mà trực tiếp trên nền web")
-
-# Khởi tạo session state lưu trữ kết quả
-if "processed_records" not in st.session_state:
-    st.session_state["processed_records"] = None
-if "excel_bytes" not in st.session_state:
-    st.session_state["excel_bytes"] = None
 
 # Khu vực Upload tập tin
 uploaded_files = st.file_uploader(
     "📤 Chọn hoặc kéo thả các tập tin C12 (PDF hoặc Ảnh scan):",
     type=["pdf", "png", "jpg", "jpeg"],
     accept_multiple_files=True,
+    key=f"c12_files_{st.session_state['uploader_key']}",
     help="Có thể chọn nhiều file cùng lúc của nhiều tháng khác nhau.",
 )
 

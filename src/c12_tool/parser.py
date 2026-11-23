@@ -625,22 +625,29 @@ def _parse_ocr_chunks(chunks: list[list[dict]], source_path: Path) -> list[C12Re
             line_str = " ".join(t["t"] for t in line["tokens"])
             k = _key(line_str)
             first_t = line["tokens"][0]["t"].strip().upper().rstrip(".,;:") if line["tokens"] else ""
+            prefix_tokens = [t["t"].strip().upper().rstrip(".,;:") for t in line["tokens"][:4]]
+            has_b_prefix = "B" in prefix_tokens or any(p in ("B", "8", "IB", "|B", "[B", "(B)") for p in prefix_tokens)
             is_stt_b = (
-                first_t == "B"
-                or (first_t in ("B", "B.", "B,") and any(w in k for w in ["PHAT", "SINH", "KY"]))
-                or "PHAT SINH TRONG" in k
-                or "PHAT SINH KY" in k
+                (has_b_prefix and any(w in k for w in ["PHAT", "SINH", "TRONG", "KY", "DONG", "IO", "10"]))
+                or "PHAT SINH" in k
+                or ("PHAT" in k and "SINH" in k)
+                or ("SINH" in k and "TRONG" in k)
+                or (has_b_prefix and not any(w in k for w in ["KY TRUOC", "MANG SANG", "DA NOP", "PHAN BO"]))
             )
             if is_stt_b:
                 b_line_idx = idx
                 num_tokens = [(t["x"], _ocr_num(t["t"])) for t in line["tokens"] if _ocr_num(t["t"]) and _ocr_num(t["t"]) > 1000]
-                if not num_tokens and idx + 1 < len(all_lines):
-                    next_l = all_lines[idx + 1]
-                    next_first = next_l["tokens"][0]["t"].strip().upper().rstrip(".,;:") if next_l["tokens"] else ""
-                    if next_first not in ("1", "2", "3", "C", "D", "Đ"):
-                        cand_tokens = [(t["x"], _ocr_num(t["t"])) for t in next_l["tokens"] if _ocr_num(t["t"]) and _ocr_num(t["t"]) > 1000]
-                        if cand_tokens:
-                            num_tokens = cand_tokens
+                # Nếu dòng B bị lệch, kiểm tra các dòng liền kề (idx-1, idx+1, idx+2)
+                if not num_tokens:
+                    for check_idx in [idx + 1, idx + 2, idx - 1]:
+                        if 0 <= check_idx < len(all_lines):
+                            cand_line = all_lines[check_idx]
+                            cand_first = cand_line["tokens"][0]["t"].strip().upper().rstrip(".,;:") if cand_line["tokens"] else ""
+                            if cand_first not in ("1", "2", "3", "C", "D", "Đ"):
+                                cand_tokens = [(t["x"], _ocr_num(t["t"])) for t in cand_line["tokens"] if _ocr_num(t["t"]) and _ocr_num(t["t"]) > 1000]
+                                if cand_tokens:
+                                    num_tokens = cand_tokens
+                                    break
                 if num_tokens:
                     b_total = max(num_tokens, key=lambda x: x[0])[1]  # Cột CỘNG bên phải nhất
                     if len(num_tokens) >= 2:
@@ -648,11 +655,26 @@ def _parse_ocr_chunks(chunks: list[list[dict]], source_path: Path) -> list[C12Re
                         b_bhtnld = sorted_x[-2][1]
                     break
 
-        # Fallback for B if line match wasn't found
+        # Fallback 1: Tìm dòng STT 3 (Phải đóng trong kỳ) vì có số liệu tương tự STT B
+        if b_total is None:
+            for idx, line in enumerate(all_lines):
+                line_str = " ".join(t["t"] for t in line["tokens"])
+                k = _key(line_str)
+                prefix_tokens = [t["t"].strip().upper().rstrip(".,;:") for t in line["tokens"][:3]]
+                if any(p in ("3", "3.", "3,") for p in prefix_tokens) and any(w in k for w in ["PHAI DONG", "PHAI", "DONG"]):
+                    num_tokens = [(t["x"], _ocr_num(t["t"])) for t in line["tokens"] if _ocr_num(t["t"]) and _ocr_num(t["t"]) > 1000]
+                    if num_tokens:
+                        b_total = max(num_tokens, key=lambda x: x[0])[1]
+                        if len(num_tokens) >= 2:
+                            sorted_x = sorted(num_tokens, key=lambda x: x[0])
+                            b_bhtnld = sorted_x[-2][1]
+                        break
+
+        # Fallback 2: Quét tất cả các số lớn trên trang 1 (dưới mục A)
         if b_total is None:
             b_nums = []
             for w in p1_words:
-                if 680 <= w["y"] <= 900:
+                if w["y"] >= 500:  # Dưới phần tiêu đề và mục A
                     val = _ocr_num(w["t"])
                     if val and val > 100000:
                         b_nums.append((w["x"], val))
@@ -664,7 +686,6 @@ def _parse_ocr_chunks(chunks: list[list[dict]], source_path: Path) -> list[C12Re
 
         # 2. STT 2 (Quỹ lương) dưới dòng STT B
         row2_val = None
-        # Quét các dòng nằm dưới STT B có STT là 2 (bỏ qua các dòng con 2.1, 2.2)
         start_search = (b_line_idx + 1) if b_line_idx is not None else 0
         for rel_idx, line in enumerate(all_lines[start_search:]):
             if not line["tokens"]:
@@ -675,15 +696,14 @@ def _parse_ocr_chunks(chunks: list[list[dict]], source_path: Path) -> list[C12Re
                 continue
 
             first_t = raw_first.upper().rstrip(".,;:")
+            prefix_tokens = [t["t"].strip().upper().rstrip(".,;:") for t in line["tokens"][:3]]
             line_str = " ".join(t["t"] for t in line["tokens"])
             k = _key(line_str)
             if first_t in ("C", "D", "Đ"):
                 break
             is_stt_2 = (
-                first_t == "2"
-                or (first_t in ("2", "2.", "2,") and any(w in k for w in ["QUY", "QUJ", "LWANG", "LUONG", "LEONG"]))
-                or "QUY LUONG" in k
-                or "QUJ LWANG" in k
+                any(p in ("2", "2.", "2,") for p in prefix_tokens)
+                or any(w in k for w in ["QUY LUONG", "QUY TIEN LUONG", "QUJ LWANG", "LUONG", "LWANG"])
             )
             if is_stt_2:
                 nums = [_ocr_num(t["t"]) for t in line["tokens"] if _ocr_num(t["t"]) and 100_000_000 <= _ocr_num(t["t"]) <= 50_000_000_000]
@@ -701,7 +721,8 @@ def _parse_ocr_chunks(chunks: list[list[dict]], source_path: Path) -> list[C12Re
         if row2_val is None and b_bhtnld and b_bhtnld > 100_000:
             row2_val = float(round(b_bhtnld * 200))
         elif row2_val is None and b_total and b_total > 10_000_000:
-            row2_val = float(round((b_total / 0.32) / 1000) * 1000)
+            rate = 0.30 if unit in ("IC", "BW") else 0.32
+            row2_val = float(round((b_total / rate) / 1000) * 1000)
 
         # 3. STT C (Nộp tiền bảo hiểm trong kỳ) - Cột CỘNG
         c_total = None
@@ -743,6 +764,13 @@ def _parse_ocr_chunks(chunks: list[list[dict]], source_path: Path) -> list[C12Re
                 c_total = b_total
             else:
                 c_total = 0.0
+
+        # Dự phòng hai chiều: Nếu B bị thiếu do scan mờ nhưng C nhận dạng được tiền nộp
+        if b_total is None and c_total and c_total > 100_000:
+            b_total = c_total
+        if row2_val is None and b_total and b_total > 10_000_000:
+            rate = 0.30 if unit in ("IC", "BW") else 0.32
+            row2_val = float(round((b_total / rate) / 1000) * 1000)
 
         # 4. Row A (Kỳ trước mang sang) on Month 1
         a_total = None
