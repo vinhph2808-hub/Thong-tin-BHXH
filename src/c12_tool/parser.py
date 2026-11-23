@@ -72,14 +72,51 @@ def _number(value: object) -> float | None:
 
 def _find_unit_and_period(text: str) -> tuple[str, str, int, int | None]:
     upper = _key(text)
-    code_match = re.search(r"MA\s*DON\s*VI\s*[:\-]?\s*((?:YN|IC|BW)[A-Z0-9._\-/]*)", upper)
-    if not code_match:
-        code_match = re.search(r"\b((?:YN|IC|BW)[A-Z0-9._\-/]{2,})\b", upper)
-    if not code_match:
-        raise C12ParseError("Không tìm thấy Mã đơn vị bắt đầu bằng YN, IC hoặc BW.")
-    code = code_match.group(1).rstrip(".,;:")
-    prefix = code[:2].upper()
-    unit = "IC" if prefix in ("IC", "BW") else prefix
+
+    unit = None
+    code = None
+
+    # 1. Quét sau từ khóa "MA DON VI"
+    code_match = re.search(r"MA\s*DON\s*VI\s*[:\-]?\s*([A-Z0-9._\-/]+)", upper)
+    if code_match:
+        raw_code = code_match.group(1).rstrip(".,;:")
+        raw_upper = raw_code.upper()
+        if raw_upper.startswith(("IC", "BW")) or raw_upper.endswith("IC") or "NNC" in raw_upper:
+            unit, code = "IC", raw_upper
+        elif raw_upper.startswith("YN") or raw_upper.endswith("YN"):
+            unit, code = "YN", raw_upper
+        elif "IC" in raw_upper:
+            unit, code = "IC", raw_upper
+        elif "YN" in raw_upper:
+            unit, code = "YN", raw_upper
+        else:
+            code = raw_upper
+
+    # 2. Token độc lập bắt đầu bằng YN, IC, BW
+    if not code or not unit:
+        m_start = re.search(r"\b((?:YN|IC|BW)[A-Z0-9._\-/]{2,})\b", upper)
+        if m_start:
+            raw_c = m_start.group(1).rstrip(".,;:").upper()
+            unit = "IC" if raw_c.startswith(("IC", "BW")) else "YN"
+            code = raw_c
+
+    # 3. Token độc lập kết thúc bằng YN hoặc IC (ví dụ: 5400448388NNC10IC)
+    if not code or not unit:
+        m_end = re.search(r"\b([A-Z0-9._\-/]{2,}(?:YN|IC))\b", upper)
+        if m_end:
+            raw_c = m_end.group(1).rstrip(".,;:").upper()
+            unit = "IC" if raw_c.endswith("IC") else "YN"
+            code = raw_c
+
+    if not code:
+        raise C12ParseError("Không tìm thấy Mã đơn vị (bắt đầu hoặc kết thúc bằng YN hoặc IC).")
+
+    if not unit:
+        raw_code_upper = code.upper()
+        if raw_code_upper.startswith(("IC", "BW")) or raw_code_upper.endswith("IC") or "NNC" in raw_code_upper or "IC" in raw_code_upper:
+            unit = "IC"
+        else:
+            unit = "YN"
 
     patterns = [
         r"THANG\s*(0?[1-9]|1[0-2])\s*NAM\s*(20\d{2})",
@@ -542,26 +579,42 @@ def _parse_ocr_chunks(chunks: list[list[dict]], source_path: Path) -> list[C12Re
         # Unit code & prefix
         clean_fn = _key(source_path.name)
         fn_code = None
-        m_fn_c = re.search(r"(?:^|[^A-Z0-9])((?:YN|IC|BW)[0-9A-Z]{4,})", clean_fn)
+        m_fn_c = re.search(r"(?:^|[^A-Z0-9])((?:YN|IC|BW)[0-9A-Z]{3,})", clean_fn)
+        if not m_fn_c:
+            m_fn_c = re.search(r"(?:^|[^A-Z0-9])([0-9A-Z]{3,}(?:YN|IC))(?=$|[^A-Z0-9])", clean_fn)
         if m_fn_c:
-            raw_c = m_fn_c.group(1).upper()
-            fn_code = raw_c[:2] + raw_c[2:].replace("O", "0").replace("I", "1").replace("L", "1")
+            fn_code = m_fn_c.group(1).upper()
 
         token_code = None
         for w in p1_words:
-            m_w = re.match(r"^((?:YN|IC|BW)[0-9OIl]{4,}[A-Z0-9]*)$", w["t"], re.I)
+            # Token bắt đầu bằng YN/IC/BW
+            m_w = re.match(r"^((?:YN|IC|BW)[0-9OIl]{3,}[A-Z0-9]*)$", w["t"], re.I)
             if m_w:
                 raw_c = m_w.group(1).upper()
                 token_code = raw_c[:2] + raw_c[2:].replace("O", "0").replace("I", "1").replace("L", "1")
                 break
+            # Token kết thúc bằng YN hoặc IC (ví dụ: 5400448388NNC10IC)
+            m_w_end = re.match(r"^([0-9A-Z]{3,}(?:YN|IC))$", w["t"], re.I)
+            if m_w_end:
+                token_code = m_w_end.group(1).upper()
+                break
 
         text_code = None
-        m_code = re.search(r"\b((?:YN|IC|BW)\s*[0-9OIl]{4,}[A-Z0-9]*)\b", full_p1_text, re.I)
-        if m_code:
-            raw_c = re.sub(r"\s+", "", m_code.group(1).upper())
-            text_code = raw_c[:2] + raw_c[2:].replace("O", "0").replace("I", "1").replace("L", "1")
+        # 1. Sau MA DON VI
+        m_mdv = re.search(r"MA\s*DON\s*VI\s*[:\-]?\s*([A-Z0-9._\-/]+)", full_p1_text, re.I)
+        if m_mdv:
+            text_code = m_mdv.group(1).rstrip(".,;:").upper()
+        else:
+            m_code = re.search(r"\b((?:YN|IC|BW)\s*[0-9OIl]{3,}[A-Z0-9]*)\b", full_p1_text, re.I)
+            if m_code:
+                raw_c = re.sub(r"\s+", "", m_code.group(1).upper())
+                text_code = raw_c[:2] + raw_c[2:].replace("O", "0").replace("I", "1").replace("L", "1")
+            else:
+                m_code_end = re.search(r"\b([0-9A-Z]{3,}(?:YN|IC))\b", full_p1_text, re.I)
+                if m_code_end:
+                    text_code = m_code_end.group(1).upper()
 
-        unit_code = token_code or fn_code or text_code
+        unit_code = token_code or text_code or fn_code
         if not unit_code:
             parent_name = _key(source_path.parent.name)
             fn_lower = clean_fn.lower()
@@ -575,7 +628,14 @@ def _parse_ocr_chunks(chunks: list[list[dict]], source_path: Path) -> list[C12Re
                 unit_code = "YN0161Q" if "0161" in full_p1_text or "0161" in fn_lower else "YN0005B"
 
         parent_upper = _key(source_path.parent.name)
-        if unit_code[:2] in ("IC", "BW") or parent_upper in ("NN", "NUOC NGOAI", "IC") or "_IC" in clean_fn:
+        raw_u = unit_code.upper()
+        if (
+            raw_u.startswith(("IC", "BW"))
+            or raw_u.endswith("IC")
+            or "NNC" in raw_u
+            or parent_upper in ("NN", "NUOC NGOAI", "IC")
+            or "_IC" in clean_fn
+        ):
             unit = "IC"
         else:
             unit = "YN"
