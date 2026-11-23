@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 from c12_tool.parser import parse_c12_records, C12ParseError
 from c12_tool.excel_writer import export_records, ExcelWriteError
-from c12_tool.tracker import log_system_access, get_google_sheet_url, set_google_sheet_url
+from c12_tool.tracker import log_system_access
 
 def get_client_info() -> tuple[str, str]:
     ip = "Khách Web"
@@ -129,18 +129,6 @@ with st.sidebar:
         st.session_state["excel_bytes"] = None
         st.session_state["uploader_key"] += 1
         st.rerun()
-
-    with st.expander("📊 Cấu hình Google Sheet theo dõi", expanded=False):
-        current_url = get_google_sheet_url()
-        input_url = st.text_input(
-            "URL Webhook Google Apps Script:",
-            value=current_url,
-            type="password",
-            help="Dán URL Web App được tạo từ Google Sheet của bạn vào đây.",
-        )
-        if st.button("Lưu cấu hình", use_container_width=True):
-            set_google_sheet_url(input_url)
-            st.success("Đã lưu URL Google Sheet thành công!")
 
 # Khu vực Upload tập tin
 uploaded_files = st.file_uploader(

@@ -60,16 +60,20 @@ function doPost(e) {
 
 ---
 
-### Bước 4: Nhập link vào hệ thống
-Bạn có thể kết nối bằng 1 trong các cách sau:
-* **Cách 1 (Trực tiếp trên Web)**: Mở trang web hệ thống, ở thanh bên trái bấm vào mục **📊 Cấu hình Google Sheet theo dõi**, dán link URL vừa copy vào và bấm **Lưu cấu hình**.
-* **Cách 2 (File cấu hình dùng chung)**: Dán link URL vào file `google_sheet_config.json` trong thư mục gốc dự án:
+### Bước 4: Nhập link Webhook (Bảo mật riêng tư, không hiển thị cho người ngoài)
+Để người truy cập web không nhìn thấy và không thể can thiệp link Google Sheet của bạn, cấu hình này được ẩn hoàn toàn khỏi giao diện người dùng. Bạn chỉ cần cài đặt 1 lần theo 1 trong 2 cách bảo mật sau:
+
+* **Cách 1 (Đơn giản nhất - Dán vào file máy tính)**: 
+  Mở file `google_sheet_config.json` ngay trong thư mục phần mềm và dán link URL vừa copy vào:
 ```json
 {
   "webhook_url": "https://script.google.com/macros/s/.../exec"
 }
 ```
-* **Cách 3 (Streamlit Cloud Secrets)**: Trên Streamlit Cloud > Settings > Secrets, thêm dòng:
+  Sau đó mở GitHub Desktop bấm **Push origin** để đồng bộ lên web. Cả bản Desktop và Website sẽ tự động dùng link này để ghi log ngầm.
+
+* **Cách 2 (Cài trên Streamlit Cloud Secrets)**:
+  Trên trang web Streamlit Cloud của bạn, bấm vào menu góc dưới bên phải **Manage app** > **Settings** > **Secrets**, dán dòng sau và bấm Save:
 ```toml
 GOOGLE_SHEET_WEBHOOK_URL = "https://script.google.com/macros/s/.../exec"
 ```
