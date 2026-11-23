@@ -11,6 +11,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 from c12_tool.parser import parse_c12_records, C12ParseError
 from c12_tool.excel_writer import export_records, ExcelWriteError
+from c12_tool.tracker import log_system_access, get_google_sheet_url, set_google_sheet_url
+
+def get_client_info() -> tuple[str, str]:
+    ip = "Khách Web"
+    ua = "Trình duyệt Web"
+    try:
+        ctx = getattr(st, "context", None)
+        if ctx and hasattr(ctx, "headers"):
+            h = ctx.headers
+            ip = h.get("x-forwarded-for") or h.get("remote-addr") or "Khách Web"
+            ua = h.get("user-agent") or "Trình duyệt Web"
+    except Exception:
+        pass
+    return ip, ua
 
 # Cấu hình trang
 st.set_page_config(
@@ -90,6 +104,18 @@ if "excel_bytes" not in st.session_state:
 if "uploader_key" not in st.session_state:
     st.session_state["uploader_key"] = 0
 
+# Tự động ghi nhận thiết bị / máy tính truy cập hệ thống vào Google Sheet
+if "logged_access" not in st.session_state:
+    st.session_state["logged_access"] = True
+    c_ip, c_ua = get_client_info()
+    log_system_access(
+        app_type="Website Streamlit",
+        action="Truy cập hệ thống",
+        user_info=c_ip,
+        device_info=c_ua,
+        details="Mở ứng dụng trên trình duyệt",
+    )
+
 with st.sidebar:
     st.header("⚙️ Hướng dẫn & Tùy chọn")
     st.info(
@@ -103,6 +129,18 @@ with st.sidebar:
         st.session_state["excel_bytes"] = None
         st.session_state["uploader_key"] += 1
         st.rerun()
+
+    with st.expander("📊 Cấu hình Google Sheet theo dõi", expanded=False):
+        current_url = get_google_sheet_url()
+        input_url = st.text_input(
+            "URL Webhook Google Apps Script:",
+            value=current_url,
+            type="password",
+            help="Dán URL Web App được tạo từ Google Sheet của bạn vào đây.",
+        )
+        if st.button("Lưu cấu hình", use_container_width=True):
+            set_google_sheet_url(input_url)
+            st.success("Đã lưu URL Google Sheet thành công!")
 
 # Khu vực Upload tập tin
 uploaded_files = st.file_uploader(
@@ -181,6 +219,16 @@ if uploaded_files:
                 st.session_state["processed_records"] = all_records
                 st.session_state["excel_bytes"] = excel_data
                 st.toast("🎉 Xử lý và tạo file Excel thành công!", icon="✅")
+                
+                # Ghi nhận lịch sử xử lý vào Google Sheet
+                c_ip, c_ua = get_client_info()
+                log_system_access(
+                    app_type="Website Streamlit",
+                    action=f"Xử lý thành công {len(all_records)} bản ghi ({total} file)",
+                    user_info=c_ip,
+                    device_info=c_ua,
+                    details=", ".join(f.name for f in uploaded_files[:5]),
+                )
             except Exception as exc:
                 st.error(f"Lỗi khi ghi dữ liệu ra file Excel: {exc}")
                 st.session_state["processed_records"] = None
@@ -255,12 +303,20 @@ if uploaded_files:
                 st.info("Chưa có dữ liệu đơn vị IC.")
         
         st.markdown("---")
-        st.download_button(
+        downloaded = st.download_button(
             label="📥 TẢI FILE EXCEL KẾT QUẢ (.XLSX)",
             data=st.session_state["excel_bytes"],
             file_name="THONG_BAO_BHXH_TONG_HOP.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
+        if downloaded:
+            c_ip, c_ua = get_client_info()
+            log_system_access(
+                app_type="Website Streamlit",
+                action="Tải file Excel kết quả",
+                user_info=c_ip,
+                device_info=c_ua,
+            )
 else:
     st.info("👆 Vui lòng tải các file C12 lên để bắt đầu.")

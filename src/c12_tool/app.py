@@ -191,6 +191,11 @@ class C12App(TkinterDnD.Tk):
         self._configure_styles()
         self._build_ui()
         self._update_stats()
+        try:
+            from .tracker import log_system_access
+            log_system_access(app_type="Phần mềm Desktop", action="Khởi động ứng dụng")
+        except Exception:
+            pass
 
     def _center_window(self) -> None:
         self.update_idletasks()
@@ -813,6 +818,16 @@ class C12App(TkinterDnD.Tk):
 
             self._set_status("Đang tạo bảng tính Excel kết quả chuyên nghiệp...", total_files, icon="📊", color="#2563EB")
             output = export_records(self.template, records, self.output_dir)
+
+            try:
+                from .tracker import log_system_access
+                log_system_access(
+                    app_type="Phần mềm Desktop",
+                    action=f"Xuất Excel ({len(records)} tháng từ {total_files} file)",
+                    details=output.name,
+                )
+            except Exception:
+                pass
 
             self._set_status("Hoàn tất xuất sắc!", total_files + 1, icon="✓", color="#10B981")
             self.after(0, lambda: self.progress_lbl.configure(text="100%"))
