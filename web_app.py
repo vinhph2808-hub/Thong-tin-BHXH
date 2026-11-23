@@ -300,10 +300,11 @@ if uploaded_files:
                 st.toast("🎉 Xử lý và tạo file Excel thành công!", icon="✅")
                 
                 # Ghi nhận lịch sử xử lý vào Google Sheet
+                total_files_count = len(uploaded_files)
                 c_ip, c_ua = get_client_info()
                 log_system_access(
                     app_type="Website Streamlit",
-                    action=f"Xử lý thành công {len(all_records)} bản ghi ({total} file)",
+                    action=f"Xử lý thành công {len(all_records)} bản ghi ({total_files_count} file)",
                     user_info=c_ip,
                     device_info=c_ua,
                     details=", ".join(f.name for f in uploaded_files[:5]),
