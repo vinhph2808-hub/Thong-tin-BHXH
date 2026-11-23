@@ -10,11 +10,25 @@ from pathlib import Path
 import urllib.request
 import urllib.error
 
-# Đường dẫn file cấu hình URL Google Sheet Webhook
-CONFIG_FILE = Path(__file__).resolve().parent.parent.parent / "google_sheet_config.json"
+# URL Webhook mặc định nếu chưa cấu hình nơi khác
+DEFAULT_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwl0acXpTU-IPBgJwRwMHHE9ieinyhSjwnA-og0b3XvOyaBHjprIFPTlDEA4Pi1bJfanw/exec"
+
+def _find_config_file() -> Path | None:
+    candidates = [
+        Path(__file__).resolve().parent.parent.parent / "google_sheet_config.json",
+        Path.cwd() / "google_sheet_config.json",
+        Path(sys.executable).parent / "google_sheet_config.json",
+        Path(getattr(sys, "_MEIPASS", ".")) / "google_sheet_config.json",
+    ]
+    for p in candidates:
+        if p.is_file():
+            return p
+    return candidates[0]
+
+CONFIG_FILE = _find_config_file() or (Path(__file__).resolve().parent.parent.parent / "google_sheet_config.json")
 
 def get_google_sheet_url() -> str:
-    """Lấy URL Google Sheet Webhook từ Streamlit secrets, biến môi trường hoặc file config."""
+    """Lấy URL Google Sheet Webhook từ Streamlit secrets, biến môi trường, file config hoặc mặc định."""
     # 1. Từ Streamlit secrets nếu đang chạy trên Streamlit Cloud
     try:
         import streamlit as st
@@ -31,14 +45,19 @@ def get_google_sheet_url() -> str:
         return env_url
     
     # 3. Từ file cấu hình local google_sheet_config.json
-    if CONFIG_FILE.is_file():
+    cfg = _find_config_file()
+    if cfg and cfg.is_file():
         try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            with open(cfg, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                return data.get("webhook_url", "").strip()
+                url = data.get("webhook_url", "").strip()
+                if url:
+                    return url
         except Exception:
             pass
-    return ""
+            
+    # 4. Mặc định
+    return DEFAULT_WEBHOOK_URL
 
 def set_google_sheet_url(url: str) -> None:
     """Lưu URL Google Sheet Webhook vào file config."""
